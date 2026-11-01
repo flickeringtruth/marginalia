@@ -1,6 +1,8 @@
-/* Marginalia extensions: Kokoro on-device voice (English).
+/* Marginalia extensions: Kokoro on-device voice (English), v2.
    Loaded by index.html with: <script type="module" src="extensions.js"></script>
    Adds "Kokoro" as a third engine next to Device voices and VoiceRSS.
+   v2: the model runs in a Web Worker so the reader never freezes, and a stalled or crashed
+   worker falls back to the device voice instead of taking the page down.
    The model (~86 MB) is downloaded from Hugging Face on first use and cached by the browser. */
 
 const KOKORO_VERSION = '1.2.0';
@@ -16,7 +18,37 @@ const VOICES = [
   ['bm_george', 'George (UK, male)'], ['bm_fable', 'Fable (UK, male)'], ['bm_daniel', 'Daniel (UK, male)']
 ];
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
-const AHEAD = 2; // chunks generated in advance
+const AHEAD = 2;            // chunks generated in advance
+const LOAD_STALL_MS = 120000; // no progress for this long while loading = give up
+const GEN_TIMEOUT_MS = 60000; // one sentence taking longer than this = give up
+
+/* Code that runs inside the worker (classic worker, dynamic import from the CDN). */
+const WORKER_SRC = `
+let tts = null;
+self.onmessage = async (e) => {
+  const m = e.data;
+  try {
+    if (m.type === 'load') {
+      let mod = null, last = null;
+      for (const url of m.urls) {
+        try { mod = await import(url); if (mod && mod.KokoroTTS) break; mod = null; } catch (err) { last = err; }
+      }
+      if (!mod) throw last || new Error('Could not load the Kokoro library');
+      tts = await mod.KokoroTTS.from_pretrained(m.modelId, {
+        dtype: m.dtype, device: 'wasm',
+        progress_callback: (p) => { if (p && p.status === 'progress') self.postMessage({ type: 'progress', file: p.file, loaded: p.loaded || 0, total: p.total || 0 }); }
+      });
+      self.postMessage({ type: 'ready' });
+    } else if (m.type === 'gen') {
+      const out = await tts.generate(m.text, { voice: m.voice, speed: m.speed });
+      const s = out.audio || out.data;
+      const copy = new Float32Array(s);
+      self.postMessage({ type: 'audio', id: m.id, samples: copy, sr: out.sampling_rate || 24000 }, [copy.buffer]);
+    }
+  } catch (err) {
+    self.postMessage({ type: 'error', id: m.id, message: String((err && err.message) || err) });
+  }
+};`;
 
 function whenReady(cb, tries = 200) {
   const R = window.__reader;
@@ -27,7 +59,7 @@ function whenReady(cb, tries = 200) {
 
 whenReady(R => {
   const T = R.TTS, A = R.A;
-  const st = { down: false, modelP: null, epoch: 0, busy: false, queue: [], wanted: new Set(), cache: new Map(), notedLang: false };
+  const st = { down: false, busy: false, queue: [], wanted: new Set(), cache: new Map(), notedLang: false };
 
   /* ---------- helpers ---------- */
   const bookLang = () => ((R.App && R.App.book && R.App.book.lang) || navigator.language || 'en').toLowerCase();
@@ -56,34 +88,7 @@ whenReady(R => {
   }
   function setStatus(text) { const s = document.getElementById('kokoroStatus'); if (s) s.textContent = text || ''; }
 
-  /* ---------- model loading ---------- */
-  async function importKokoro() {
-    let last;
-    for (const url of KOKORO_URLS) {
-      try { const m = await import(url); if (m && m.KokoroTTS) return m; } catch (e) { last = e; console.warn('[extensions] import failed', url, e); }
-    }
-    throw last || new Error('Could not load the Kokoro library');
-  }
-  function loadModel() {
-    if (st.modelP) return st.modelP;
-    const files = {};
-    const onProgress = p => {
-      if (!p || p.status !== 'progress' || !p.file) return;
-      files[p.file] = { loaded: p.loaded || 0, total: p.total || 0 };
-      let l = 0, t = 0; for (const k in files) { l += files[k].loaded; t += files[k].total; }
-      if (t) { const msg = 'Downloading voice… ' + Math.round(l / t * 100) + '% (' + Math.round(t / 1048576) + ' MB, first time only)'; banner(msg); setStatus(msg); }
-    };
-    setStatus('Loading…'); banner('Loading the Kokoro voice… (first time downloads ~90 MB)');
-    st.modelP = (async () => {
-      const { KokoroTTS } = await importKokoro();
-      const tts = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'q8', device: 'wasm', progress_callback: onProgress });
-      banner('Kokoro voice ready', 1800); setStatus('Ready ✓ (stored on this device)');
-      return tts;
-    })().catch(e => { st.modelP = null; setStatus('Could not load: ' + (e && e.message ? e.message : e)); throw e; });
-    return st.modelP;
-  }
-
-  /* ---------- audio generation queue (one at a time, newest wanted first) ---------- */
+  /* ---------- WAV encoding (runs on the main thread, cheap) ---------- */
   function wavBlob(f32, sr) {
     const n = f32.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
     const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
@@ -93,14 +98,69 @@ whenReady(R => {
     for (let i = 0; i < n; i++) { const s = Math.max(-1, Math.min(1, f32[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
     return new Blob([buf], { type: 'audio/wav' });
   }
-  async function synth(text) {
-    const tts = await loadModel();
-    const out = await tts.generate(text, { voice: voice(), speed: speed() });
-    let blob = null;
-    if (out && typeof out.toBlob === 'function') { try { blob = out.toBlob(); } catch (e) { blob = null; } }
-    if (!blob) blob = wavBlob(out.audio || out.data, out.sampling_rate || 24000);
-    return URL.createObjectURL(blob);
+
+  /* ---------- worker control ---------- */
+  let worker = null, readyP = null, nextId = 1, loadTimer = 0;
+  const pending = new Map(); // id -> { resolve, reject, timer }
+  const files = {};
+
+  function killWorker(reason) {
+    clearTimeout(loadTimer);
+    if (worker) { try { worker.terminate(); } catch (e) { /* ignore */ } }
+    worker = null; readyP = null;
+    for (const [, p] of pending) { clearTimeout(p.timer); p.reject(new Error(reason || 'Kokoro stopped')); }
+    pending.clear();
+    for (const k in files) delete files[k];
   }
+
+  function startWorker() {
+    if (readyP) return readyP;
+    if (typeof Worker === 'undefined') return Promise.reject(new Error('This browser has no background workers'));
+    setStatus('Loading…'); banner('Loading the Kokoro voice… (first time downloads ~90 MB)');
+    readyP = new Promise((resolve, reject) => {
+      let url;
+      try { url = URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })); worker = new Worker(url); }
+      catch (e) { reject(e); return; }
+      const stall = () => { killWorker('Kokoro took too long to load'); reject(new Error('Kokoro took too long to load')); };
+      const bump = () => { clearTimeout(loadTimer); loadTimer = setTimeout(stall, LOAD_STALL_MS); };
+      bump();
+      worker.onmessage = ev => {
+        const m = ev.data || {};
+        if (m.type === 'progress') {
+          bump();
+          files[m.file] = { loaded: m.loaded, total: m.total };
+          let l = 0, t = 0; for (const k in files) { l += files[k].loaded; t += files[k].total; }
+          if (t) { const msg = 'Downloading voice… ' + Math.round(l / t * 100) + '% (' + Math.round(t / 1048576) + ' MB, first time only)'; banner(msg); setStatus(msg); }
+        } else if (m.type === 'ready') {
+          clearTimeout(loadTimer); banner('Kokoro voice ready', 1800); setStatus('Ready ✓ (stored on this device)'); resolve();
+        } else if (m.type === 'audio') {
+          const p = pending.get(m.id); if (!p) return; pending.delete(m.id); clearTimeout(p.timer);
+          p.resolve(URL.createObjectURL(wavBlob(m.samples, m.sr)));
+        } else if (m.type === 'error') {
+          const p = m.id != null ? pending.get(m.id) : null;
+          if (p) { pending.delete(m.id); clearTimeout(p.timer); p.reject(new Error(m.message)); }
+          else { killWorker(m.message); reject(new Error(m.message)); }
+        }
+      };
+      worker.onerror = ev => { const msg = (ev && ev.message) || 'Kokoro worker crashed'; killWorker(msg); reject(new Error(msg)); };
+      worker.postMessage({ type: 'load', urls: KOKORO_URLS, modelId: MODEL_ID, dtype: 'q8' });
+    });
+    readyP.catch(e => { setStatus('Could not load: ' + (e && e.message ? e.message : e)); readyP = null; });
+    return readyP;
+  }
+
+  async function synth(text) {
+    await startWorker();
+    if (!worker) throw new Error('Kokoro is not running');
+    return new Promise((resolve, reject) => {
+      const id = nextId++;
+      const timer = setTimeout(() => { killWorker('Kokoro took too long on one sentence'); }, GEN_TIMEOUT_MS);
+      pending.set(id, { resolve, reject, timer });
+      worker.postMessage({ type: 'gen', id, text, voice: voice(), speed: speed() });
+    });
+  }
+
+  /* ---------- generation queue (one at a time; only sentences still wanted) ---------- */
   function trimCache() {
     while (st.cache.size > 14) {
       const k = st.cache.keys().next().value, e = st.cache.get(k);
@@ -113,7 +173,8 @@ whenReady(R => {
       while (st.queue.length) {
         const e = st.queue.shift();
         if (!st.wanted.has(e.key)) { st.cache.delete(e.key); e.resolve(null); continue; }
-        try { e.url = await synth(e.text); e.resolve(e.url); } catch (err) { console.warn('[extensions] synth failed', err); st.cache.delete(e.key); e.reject(err); }
+        try { e.url = await synth(e.text); e.resolve(e.url); }
+        catch (err) { console.warn('[extensions] synth failed', err); st.cache.delete(e.key); e.reject(err); }
       }
     } finally { st.busy = false; }
   }
@@ -122,7 +183,7 @@ whenReady(R => {
     const hit = st.cache.get(key); if (hit) return hit.promise;
     const e = { key, text };
     e.promise = new Promise((res, rej) => { e.resolve = res; e.reject = rej; });
-    e.promise.catch(() => { /* handled by caller */ });
+    e.promise.catch(() => { /* handled by the caller */ });
     st.cache.set(key, e); st.queue.push(e); trimCache(); pump();
     return e.promise;
   }
@@ -160,7 +221,8 @@ whenReady(R => {
   };
 
   function fail(msg) {
-    log('fail', msg); st.down = true; this.stopOnline(); banner(msg + ' — using device voices', 5000);
+    log('fail', msg); st.down = true; killWorker('stopped'); this.stopOnline();
+    banner(msg + ' — using device voices', 6000); setStatus(msg);
     R.setAudio('engine', 'device'); // updates the settings and restarts reading with the device voice
   }
 
@@ -180,7 +242,7 @@ whenReady(R => {
         VOICES.map(v => '<option value="' + v[0] + '">' + v[1] + '</option>').join('') + '</select></div>' +
         '<div class="key-row"><button class="small-btn" id="kokoroLoad">Download voice now</button></div>' +
         '<p class="hint" id="kokoroStatus"></p>' +
-        '<p class="hint">Natural AI voice that runs on your device. English books only; other languages use your device voice. The first use downloads about 90 MB and stores it for next time. It can be slower than device voices on older phones.</p>';
+        '<p class="hint">Natural AI voice that runs on your device in the background. English books only; other languages use your device voice. The first use downloads about 90 MB and stores it for next time. It can be slower than device voices on older phones.</p>';
       const anchor = document.getElementById('vrssBox');
       if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(box, anchor.nextSibling); else seg.parentNode.appendChild(box);
     }
@@ -203,8 +265,8 @@ whenReady(R => {
     if (!body) { setTimeout(wireUI, 200); return; }
     body.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
-      if (b.dataset.v === 'kokoro' && b.closest('[data-aseg="engine"]')) { st.down = false; prime(); loadModel().catch(() => { /* status shows the error */ }); return; }
-      if (b.id === 'kokoroLoad') { prime(); loadModel().catch(() => { /* status shows the error */ }); }
+      if (b.dataset.v === 'kokoro' && b.closest('[data-aseg="engine"]')) { st.down = false; prime(); startWorker().catch(() => { /* status shows the error */ }); return; }
+      if (b.id === 'kokoroLoad') { st.down = false; prime(); startWorker().catch(() => { /* status shows the error */ }); }
     }, true);
     body.addEventListener('change', e => {
       if (e.target.id !== 'kokoroVoice') return;
@@ -215,5 +277,5 @@ whenReady(R => {
     ensureUI();
   }
   wireUI();
-  log('ready', 'extensions loaded');
+  log('ready', 'extensions v2 loaded');
 });
