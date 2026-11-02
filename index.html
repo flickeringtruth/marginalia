@@ -2505,6 +2505,7 @@ const A_DEFAULTS = { voiceURI: '', preset: 'deep', rate: 0.95, pitch: 0.85, volu
   autoScroll: true, autoNext: true, startFrom: 'chapter', sleep: 0,
   engine: 'device',          // 'device' (SpeechSynthesis) | 'voicerss' (online, free key)
   vrssKey: '', vrssVoice: '', ssml: false,
+  edgeProxy: '', edgeVoice: 'en-US-AriaNeural',
   cadence: false,            // storytelling cadence for device voices (speakWithCadence)
   ambient: 'off', ambVol: 0.35 };
 let A = Object.assign({}, A_DEFAULTS, LS.get('reader.audio', {}));
@@ -2514,6 +2515,8 @@ const AUDIO_PRESETS = { auto: { rate: 1, pitch: 1 }, deep: { rate: 0.95, pitch: 
 /* VoiceRSS voices per language (free plan). Deep/male voices first. */
 const VRSS_VOICES = { 'en-us': ['John', 'Mike', 'Linda', 'Amy', 'Mary'], 'en-gb': ['Harry', 'Alice', 'Nancy', 'Lily'], 'en-au': ['Jack', 'Zoe', 'Isla', 'Evie'], 'nl-nl': ['Daan', 'Bram', 'Lotte'], 'de-de': ['Jonas', 'Hanna', 'Lina'], 'fr-fr': ['Axel', 'Bette', 'Iva', 'Zola'], 'es-es': ['Diego', 'Camila', 'Sofia'] };
 function vrssLang() { const l = bookLang().toLowerCase().replace('_', '-'); if (VRSS_VOICES[l]) return l; const b = l.split('-')[0]; return { en: 'en-us', nl: 'nl-nl', de: 'de-de', fr: 'fr-fr', es: 'es-es', it: 'it-it', pt: 'pt-pt', sv: 'sv-se', da: 'da-dk', nb: 'nb-no', pl: 'pl-pl' }[b] || 'en-us'; }
+const EDGE_VOICES = ['en-US-AriaNeural', 'en-US-AvaNeural', 'en-US-AndrewNeural', 'en-US-GuyNeural', 'en-US-JennyNeural', 'en-GB-SoniaNeural', 'en-GB-RyanNeural', 'nl-NL-ColetteNeural', 'nl-NL-FennaNeural', 'nl-NL-MaartenNeural'];
+function edgeProxyUrl() { try { return (A.edgeProxy || localStorage.getItem('marginalia.voiceProxy') || '').trim().replace(/\/+$/, ''); } catch (e) { return (A.edgeProxy || '').trim().replace(/\/+$/, ''); } }
 const MALE_RE = /\b(male|man|google uk english male|microsoft david|daniel|alex|fred|aaron|arthur|rishi|oliver|thomas|gordon|lee|ralph|reed|rocko|eddy|grandpa|guy|davis|ryan|christopher|eric|brian|andrew|roger|william|tony|mark|david|george|james|xander|frank|maarten|arjan|jacques|paul|nathan|evan|jorge|diego|luca|hans|markus|stefan|tom|liam|noah|matthew|steffan|connor|william)\b/;
 const NOVELTY_RE = /compact|espeak|robot|novelty|bells|bubbles|zarvox|whisper|trinoids|bad news|good news|jester|organ|cellos|boing|hysterical|albert|bahh|superstar|wobble|deranged|pipe/;
 let SPEECH_WORD_RE; try { SPEECH_WORD_RE = new RegExp('[\\p{L}\\p{N}]', 'u'); } catch (e) { SPEECH_WORD_RE = /[A-Za-z0-9\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]/; }
@@ -2670,7 +2673,7 @@ function rangeRectsFor(map, s, e) {
 const TTS = {
   state: 'idle',            // idle | loading | playing | paused
   model: null, models: new Map(), ch: -1, pos: 0, idx: 0, base: 0, token: 0,
-  utt: null, uttLen: 0, startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
+  utt: null, uttLen: 0, edgeRequest: null, audioUrl: '', startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
   hasBoundary: new Map(), cps: LS.get('reader.audio.cps', {}),
   ticker: 0, watchdog: 0, sylTimers: [], unit: null, word: null, trail: [],
   els: new Map(), layer: null, driving: 0, userAt: 0, suspended: false, lastScrollH: 0, lastVisCheck: 0,
@@ -2685,9 +2688,9 @@ const TTS = {
     if (this.forceLocal) return Voices.best(bookLang(), 'auto', true);
     const v = A.voiceURI && Voices.byURI(A.voiceURI); return v || Voices.best(bookLang(), A.preset === 'custom' ? 'auto' : A.preset);
   },
-  vkey() { if (this.online()) return 'vrss'; const v = this.voice(); return v ? v.voiceURI : 'default'; },
+  vkey() { if (this.online()) return A.engine === 'edge' ? 'edge:' + A.edgeVoice : 'vrss'; const v = this.voice(); return v ? v.voiceURI : 'default'; },
   charsPerSec() { return (this.cps[this.vkey()] || 14.5) * clamp(A.rate, 0.1, 10); },
-  online() { return A.engine === 'voicerss' && !!(A.vrssKey || CONFIG.tts.voicerssKey) && !this.onlineDown; },
+  online() { return (A.engine === 'voicerss' && !!(A.vrssKey || CONFIG.tts.voicerssKey) || A.engine === 'edge' && !!edgeProxyUrl()) && !this.onlineDown; },
   mode() { return this.online() ? 'online' : A.cadence ? 'cadence' : 'plain'; },
   mk(ch) { return ch + '|' + this.mode(); },
   async getModel(ch) {
@@ -2841,7 +2844,7 @@ const TTS = {
     return { p, r, v };
   },
   speakChunk(i, from, tk) {
-    if (this.online()) { this.speakChunkOnline(i, from, tk); return; }
+    if (this.online()) { if (A.engine === 'edge') this.speakChunkEdge(i, from, tk); else this.speakChunkOnline(i, from, tk); return; }
     const m = this.model, c = m.chunks[i];
     this.idx = i; this.base = from;
     const text = m.text.slice(from, c.e).replace(/\s/g, ' ');   // length-preserving, so charIndex maps 1:1
@@ -2899,7 +2902,24 @@ const TTS = {
     if (ssml) q.set('ssml', 'true');
     return CONFIG.tts.voicerssUrl + '?' + q.toString();
   },
-  stopOnline() { const a = this.audioEl; if (a) { try { a.onplaying = a.onended = a.onerror = null; a.pause(); } catch (e) { /* ignore */ } } cancelAnimationFrame(this.onlineRaf); clearTimeout(this.onlineTimer); },
+  async edgeAudio(text, signal) {
+    const endpoint = edgeProxyUrl();
+    if (!endpoint) throw new Error('Add your Edge TTS Worker URL in audio settings');
+    const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: A.edgeVoice, rate: clamp(A.rate, 0.5, 2) }), signal });
+    if (!response.ok) {
+      let message = 'HTTP ' + response.status;
+      try { const data = await response.json(); if (data.error) message = data.error; } catch (e) { /* ignore */ }
+      throw new Error(message);
+    }
+    return response.blob();
+  },
+  stopOnline() {
+    if (this.edgeRequest) { this.edgeRequest.abort(); this.edgeRequest = null; }
+    const a = this.audioEl;
+    if (a) { try { a.onplaying = a.onended = a.onerror = null; a.pause(); } catch (e) { /* ignore */ } }
+    if (this.audioUrl) { URL.revokeObjectURL(this.audioUrl); this.audioUrl = ''; }
+    cancelAnimationFrame(this.onlineRaf); clearTimeout(this.onlineTimer);
+  },
   speakChunkOnline(i, from, tk) {
     const m = this.model, c = m.chunks[i];
     this.idx = i; this.base = from;
@@ -2926,6 +2946,46 @@ const TTS = {
     clearTimeout(this.onlineTimer);
     this.onlineTimer = setTimeout(() => { if (tk === this.token && this.state === 'playing' && a.paused && a.currentTime === 0) this.onlineError(i, from, tk); }, 12000);
     const n = m.chunks[i + 1]; if (n) { const pre = new window.Audio(); pre.preload = 'auto'; pre.src = this.vrssUrl(m.text.slice(n.s, n.e).replace(/\s+/g, ' ')); this.preAudio = pre; } // warm the next request
+  },
+  async speakChunkEdge(i, from, tk) {
+    const m = this.model, c = m.chunks[i], text = m.text.slice(from, c.e).replace(/\s+/g, ' ');
+    this.idx = i; this.base = from; this.setPos(from, 'chunk');
+    const controller = new AbortController(); this.edgeRequest = controller;
+    try {
+      const blob = await this.edgeAudio(text, controller.signal);
+      if (tk !== this.token) return;
+      this.edgeRequest = null;
+      const a = this.audioEl || (this.audioEl = new window.Audio());
+      if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
+      this.audioUrl = URL.createObjectURL(blob);
+      a.preload = 'auto'; a.volume = clamp(A.volume / 100, 0, 1);
+      a.onplaying = () => {
+        if (tk !== this.token) return;
+        this.startFails = 0; this.errors = 0; this.lastEventAt = this.startedAt = performance.now(); this.logEv('edge-start', i);
+        clearTimeout(this.onlineTimer);
+        const len = text.length, tick = () => {
+          if (tk !== this.token || this.state !== 'playing') return;
+          const d = a.duration; if (d && isFinite(d)) { const off = wordStartAtOrBefore(m.text, from + Math.floor(clamp(a.currentTime / d, 0, 0.999) * len), from); if (off > this.pos) this.setPos(off, 'tick'); }
+          this.onlineRaf = requestAnimationFrame(tick);
+        };
+        tick();
+      };
+      a.onended = () => { if (tk !== this.token) return; this.logEv('edge-end', i); cancelAnimationFrame(this.onlineRaf); this.learn(this.vkey(), text.length, true); this.afterChunk(i, tk); };
+      a.onerror = () => { if (tk === this.token) this.edgeError(i, from, tk, 'audio playback failed'); };
+      a.src = this.audioUrl; this.utt = null; this.lastSpeakAt = performance.now();
+      const p = a.play(); if (p && p.catch) p.catch(err => { if (tk !== this.token) return; if (err && err.name === 'NotAllowedError') { this.pause(); toast('Tap play to start reading aloud'); } else if (err && err.name !== 'AbortError') this.edgeError(i, from, tk, err.message); });
+      clearTimeout(this.onlineTimer);
+      this.onlineTimer = setTimeout(() => { if (tk === this.token && this.state === 'playing' && a.paused && a.currentTime === 0) this.edgeError(i, from, tk, 'playback did not start'); }, 12000);
+    } catch (err) {
+      if (tk !== this.token || err.name === 'AbortError') return;
+      this.edgeError(i, from, tk, err.message);
+    }
+  },
+  edgeError(i, from, tk, message) {
+    if (tk !== this.token) return;
+    this.logEv('edge-error', message); this.stopOnline(); this.onlineDown = true;
+    toast('EdgeTTS failed (' + message + ') — using device voices', 4200);
+    this.speakFrom(this.ch, this.pos || from);
   },
   onlineError(i, from, tk) {
     this.logEv('online-error', i);
@@ -3251,12 +3311,17 @@ function aseg(key, opts) { return `<div class="seg" data-aseg="${key}">${opts.ma
 function buildAudioSettings() {
   $('#audioBody').innerHTML = `
   <div class="grp"><h3>Engine</h3>
-    ${aseg('engine', [['device', 'Device voices'], ['voicerss', 'VoiceRSS (online)']])}
+    ${aseg('engine', [['device', 'Device voices'], ['voicerss', 'VoiceRSS (online)'], ['edge', 'EdgeTTS']])}
     <div id="vrssBox" class="hidden" style="margin-top:10px">
       <div class="key-row"><input id="vrssKey" type="password" placeholder="VoiceRSS API key" autocomplete="off" aria-label="VoiceRSS API key"><button class="small-btn" id="vrssSave">Save</button></div>
       <div class="row" style="margin-top:6px"><span>Voice</span><select id="vrssVoice" aria-label="VoiceRSS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px"></select></div>
       <button class="switch-row" data-atoggle="ssml">SSML storytelling (paid VoiceRSS plans)<span class="switch"></span></button>
       <p class="hint">Free key: <a href="https://www.voicerss.org/personel/" target="_blank" rel="noopener">voicerss.org</a> → register → copy the API key. The free plan allows 350 requests a day (about 5–8 chapters, text is sent in larger pieces to save requests) and no SSML; if a request fails, reading continues with device voices.</p>
+    </div>
+    <div id="edgeBox" class="hidden" style="margin-top:10px">
+      <div class="key-row"><input id="edgeProxy" type="url" placeholder="https://your-worker.workers.dev" autocomplete="off" autocapitalize="off" aria-label="EdgeTTS Worker URL"><button class="small-btn" id="edgeSave">Save</button></div>
+      <div class="row" style="margin-top:6px"><span>Voice</span><select id="edgeVoice" aria-label="EdgeTTS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px">${EDGE_VOICES.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>
+      <p class="hint">Enter the Cloudflare Worker address used by the Edge voice test. It is saved on this device.</p>
     </div>
   </div>
   <div class="grp"><h3>Voice</h3>
@@ -3323,8 +3388,11 @@ function syncAudioSettingsUI() {
   $$('[data-atoggle]', body).forEach(b => b.querySelector('.switch').classList.toggle('on', !!A[b.dataset.atoggle]));
   $('#volHint').classList.toggle('hidden', A.volume <= 100);
   $('#vrssBox').classList.toggle('hidden', A.engine !== 'voicerss');
+  $('#edgeBox').classList.toggle('hidden', A.engine !== 'edge');
   const vk = $('#vrssKey'); if (vk && document.activeElement !== vk) vk.value = A.vrssKey || '';
   const vs = $('#vrssVoice'); if (vs) { const hl = vrssLang(), list = VRSS_VOICES[hl] || []; const want = '<option value="">Default (' + esc(list[0] || 'service default') + ')</option>' + list.map(n => `<option>${esc(n)}</option>`).join(''); if (vs.dataset.hl !== hl) { vs.innerHTML = want; vs.dataset.hl = hl; } vs.value = list.includes(A.vrssVoice) ? A.vrssVoice : ''; }
+  const edgeProxy = $('#edgeProxy'); if (edgeProxy && document.activeElement !== edgeProxy) edgeProxy.value = edgeProxyUrl();
+  const edgeVoice = $('#edgeVoice'); if (edgeVoice) edgeVoice.value = EDGE_VOICES.includes(A.edgeVoice) ? A.edgeVoice : EDGE_VOICES[0];
   $$('[data-amb] button', body).forEach(b => b.classList.toggle('on', Ambient.kind === b.dataset.v));
   const av = $('#ambVol'); if (av) { av.value = A.ambVol; av.style.setProperty('--p', (A.ambVol * 100) + '%'); }
   const sel = $('#voiceSelect'); if (sel && document.activeElement !== sel) sel.value = A.voiceURI && Voices.byURI(A.voiceURI) ? A.voiceURI : '';
@@ -3339,7 +3407,7 @@ function setAudio(key, val) {
   if (['rate', 'pitch', 'volume', 'voiceURI'].includes(key)) TTS.restartSoon();
   if (key === 'hlMode' || key === 'trail') { TTS.trail = []; TTS.unit = null; TTS.word = null; TTS.sylTimers.forEach(clearTimeout); if (TTS.model) { TTS.updateUnit('mode'); TTS.renderHL(); } }
   if (key === 'hlColor') applyAudioColor();
-  if (key === 'engine' || key === 'cadence') { TTS.onlineDown = false; TTS.ssmlDown = false; TTS.vrssVoiceDown = false; if (key === 'engine' && val === 'voicerss' && !(A.vrssKey || CONFIG.tts.voicerssKey)) toast('Paste your free VoiceRSS key below'); TTS.restartSoon(); }
+  if (key === 'engine' || key === 'cadence') { TTS.onlineDown = false; TTS.ssmlDown = false; TTS.vrssVoiceDown = false; if (key === 'engine' && val === 'voicerss' && !(A.vrssKey || CONFIG.tts.voicerssKey)) toast('Paste your free VoiceRSS key below'); if (key === 'engine' && val === 'edge' && !edgeProxyUrl()) toast('Enter your EdgeTTS Worker URL below'); TTS.restartSoon(); }
   if (key === 'ssml') { TTS.ssmlDown = false; TTS.restartSoon(); }
   if (key === 'sleep' && TTS.active()) TTS.armSleep();
   if ((key === 'autoScroll' || key === 'autoNext') && val) { TTS.suspended = false; AudioUI.chip(false); TTS.follow(false); }
@@ -3351,6 +3419,13 @@ function bindAudioSettings() {
     const b = e.target.closest('button'); if (!b) return;
     if (b.id === 'voicePreview') { previewVoice(); return; }
     if (b.id === 'vrssSave') { A.vrssKey = $('#vrssKey').value.trim(); saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); toast(A.vrssKey ? 'VoiceRSS key saved on this device' : 'Key removed'); syncAudioSettingsUI(); TTS.restartSoon(); return; }
+    if (b.id === 'edgeSave') {
+      const proxy = $('#edgeProxy').value.trim().replace(/\/+$/, '');
+      if (proxy && !/^https:\/\//i.test(proxy)) { toast('Enter a secure https:// Worker URL'); return; }
+      A.edgeProxy = proxy; saveAudioSettings();
+      try { if (proxy) localStorage.setItem('marginalia.voiceProxy', proxy); else localStorage.removeItem('marginalia.voiceProxy'); } catch (e) { /* ignore */ }
+      TTS.onlineDown = false; TTS.models.clear(); syncAudioSettingsUI(); TTS.restartSoon(); toast(proxy ? 'EdgeTTS Worker URL saved' : 'EdgeTTS Worker URL cleared'); return;
+    }
     const ab = b.closest('[data-amb]'); if (ab) { Ambient.start(b.dataset.v); syncAudioSettingsUI(); return; }
     if (b.id === 'ttsTest') { runSpeechTest(); return; }
     if (b.id === 'ttsCopy') { copyText(speechReport()); return; }
@@ -3363,7 +3438,11 @@ function bindAudioSettings() {
     setAudio(key, key === 'sleep' ? parseInt(v, 10) : v);
   });
   body.addEventListener('input', e => { const i = e.target; if (i.id === 'ambVol') { Ambient.setVol(+i.value); i.style.setProperty('--p', (i.value * 100) + '%'); return; } if (!i.dataset || !i.dataset.aset) return; setAudio(i.dataset.aset, parseFloat(i.value)); });
-  body.addEventListener('change', e => { if (e.target.id === 'vrssVoice') { A.vrssVoice = e.target.value; saveAudioSettings(); TTS.vrssVoiceDown = false; TTS.restartSoon(); return; } if (e.target.id === 'voiceSelect') { A.preset = e.target.value ? 'custom' : 'auto'; setAudio('voiceURI', e.target.value); fillVoiceSelect(); } });
+  body.addEventListener('change', e => {
+    if (e.target.id === 'vrssVoice') { A.vrssVoice = e.target.value; saveAudioSettings(); TTS.vrssVoiceDown = false; TTS.restartSoon(); return; }
+    if (e.target.id === 'edgeVoice') { A.edgeVoice = e.target.value; saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); TTS.restartSoon(); return; }
+    if (e.target.id === 'voiceSelect') { A.preset = e.target.value ? 'custom' : 'auto'; setAudio('voiceURI', e.target.value); fillVoiceSelect(); }
+  });
 }
 function speechReport(extra) {
   const v = TTS.voice(); let ss = {}; let top = 'n/a';
@@ -3420,7 +3499,20 @@ function runSpeechTest() {
 function previewVoice() {
   if (TTS.state === 'playing' || TTS.state === 'loading') TTS.pause();
   const sample = /^nl/i.test(bookLang()) ? 'Zo klinkt deze stem bij het voorlezen. Hoor je het verschil?' : 'This is how this voice sounds when reading your book. Can you hear the difference?';
-  if (TTS.online()) { const a = new window.Audio(TTS.vrssUrl(sample)); a.volume = clamp(A.volume / 100, 0, 1); a.play().catch(() => toast('VoiceRSS preview failed — check the key')); return; }
+  if (TTS.online()) {
+    if (A.engine === 'edge') {
+      TTS.edgeAudio(sample).then(blob => {
+        const url = URL.createObjectURL(blob), a = new window.Audio(url);
+        a.volume = clamp(A.volume / 100, 0, 1);
+        const cleanup = () => URL.revokeObjectURL(url);
+        a.onended = cleanup; a.onerror = () => { cleanup(); toast('EdgeTTS preview failed'); };
+        const p = a.play(); if (p && p.catch) p.catch(() => { cleanup(); toast('EdgeTTS preview failed to play'); });
+      }).catch(err => toast('EdgeTTS preview failed: ' + err.message));
+    } else {
+      const a = new window.Audio(TTS.vrssUrl(sample)); a.volume = clamp(A.volume / 100, 0, 1); a.play().catch(() => toast('VoiceRSS preview failed — check the key'));
+    }
+    return;
+  }
   if (!TTS_OK) return;
   if (A.cadence) { speakWithCadence(sample); TTS.unlocked = true; return; }
   try {
