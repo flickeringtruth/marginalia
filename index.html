@@ -80,7 +80,7 @@ svg{display:block}
 .cover-btn:active{transform:scale(.97)}
 .cover-btn img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
 .gen-cover{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:14px 12px;color:#fff;text-align:left}
-.gen-cover b{font-family:"Iowan Old Style",Georgia,serif;font-size:17px;line-height:1.15;font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical}
+.gen-cover b{font-family:"Iowan Old Style",Georgia,serif;font-size:17px;line-height:1.15;font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:5;line-clamp:5;-webkit-box-orient:vertical}
 .gen-cover span{font-size:11px;opacity:.85}
 .gen-cover .fmt{align-self:flex-start;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,.22)}
 .del-btn{position:absolute;top:0;right:0;width:44px;height:44px;display:flex;align-items:center;justify-content:center;z-index:2}
@@ -91,7 +91,7 @@ svg{display:block}
 .bar{flex:1;height:3px;border-radius:2px;background:var(--line);overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
 .card-prog span{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
-.card-title{font-size:14px;font-weight:600;margin-top:6px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.card-title{font-size:14px;font-weight:600;margin-top:6px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical}
 .card-author{font-size:13px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{max-width:420px;margin:12vh auto 0;text-align:center;padding:0 12px}
 .empty .art{width:96px;height:96px;margin:0 auto 22px;stroke:var(--muted);fill:none;stroke-width:1.2}
@@ -302,7 +302,7 @@ body.is-pdf .only-text{display:none!important}
 .hl-item .go{flex:1;min-width:0;text-align:left;padding:12px 4px 12px 20px;display:flex;gap:12px}
 .hl-item .go:active{background:var(--card)}
 .hl-item .sw{width:4px;border-radius:2px;flex:none}
-.hl-item .tx{font-family:var(--ff);font-size:15px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical}
+.hl-item .tx{font-family:var(--ff);font-size:15px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;line-clamp:4;-webkit-box-orient:vertical}
 .hl-item .meta{font-size:12px;color:var(--muted);margin-top:4px}
 .hl-item .rm{width:48px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--muted)}
 .hl-item .rm svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}
@@ -2106,6 +2106,19 @@ function selectedText() {
   if (Sel.hlId) { const h = HL.get(Sel.hlId); return h ? h.text : ''; }
   return Sel.active && Sel.root ? textBetween(Sel.root, Sel.start, Sel.end) : '';
 }
+function selectionAiContext() {
+  if (!Sel.root) return selectedText();
+  const highlight = Sel.hlId && HL.get(Sel.hlId);
+  const start = highlight ? highlight.start : Sel.start;
+  const end = highlight ? highlight.end : Sel.end;
+  const text = Sel.root.textContent;
+  const selected = text.slice(start, end).trim();
+  const before = text.slice(0, start).trimEnd();
+  const after = text.slice(end).trimStart();
+  const previous = before.match(/[^.!?\n]+[.!?]+["'\u2019\u201d)]*\s*$/);
+  const next = after.match(/^[^.!?\n]+(?:[.!?]+["'\u2019\u201d)]*)?/);
+  return [previous && previous[0].trim(), selected, next && next[0].trim()].filter(Boolean).join(' ').slice(0, 2400);
+}
 
 /* ---------- Handle dragging ---------- */
 function bindHandles() {
@@ -2142,7 +2155,7 @@ function showMenu() {
   const m = $('#selMenu'); const isHl = !!Sel.hlId; const cur = isHl ? (HL.get(Sel.hlId) || {}).color : null;
   const canShare = !!navigator.share;
   m.innerHTML = '<div class="colors">' + Object.keys(HL_COLORS).map(c => `<button class="dot${c === cur ? ' on' : ''}" data-color="${c}" aria-label="${c} highlight"><i style="background:${HL_COLORS[c]}"></i></button>`).join('') + '</div>' +
-    '<div class="acts"><button class="act" data-a="define">Look Up</button>' + (TTS_OK ? '<button class="act" data-a="speak">Read</button>' : '') + '<button class="act" data-a="copy">Copy</button>' +
+    '<div class="acts"><button class="act" data-a="define">Look Up</button><button class="act" data-a="ask-ai">Ask AI</button>' + (TTS_OK ? '<button class="act" data-a="speak">Read</button>' : '') + '<button class="act" data-a="copy">Copy</button>' +
     (canShare ? '<button class="act" data-a="share">Share</button>' : '') + (isHl ? '<button class="act danger" data-a="remove">Remove</button>' : '') + '</div>';
   if (!m.classList.contains('show')) { m.classList.add('show'); }
   // keep the selection visible above the sheet in scroll mode
@@ -2169,6 +2182,11 @@ function bindMenu() {
     const a = b.dataset.a;
     if (a === 'copy') { await copyText(text); clearSelection(); }
     else if (a === 'define') { clearSelection(); openDictionary(text); }
+    else if (a === 'ask-ai') {
+      const context = selectionAiContext();
+      clearSelection();
+      AI.open('Explain this in the context of the book: ' + text, context);
+    }
     else if (a === 'speak') {
       let ch = Sel.ch, off = Sel.start;
       if (Sel.hlId) { const h = HL.get(Sel.hlId); if (h) { ch = h.ch; off = h.start; } }
@@ -2677,8 +2695,14 @@ async function buildSpeechModel(ch, mode) {
   const chunks = [];
   paras.forEach((p, pi) => {
     const sents = splitSentences(text, p.s, p.e);
-    if (mode === 'online' || mode === 'edge') {
-      const max = mode === 'edge' ? 1100 : 520;
+    if (mode === 'edge') {
+      for (const [s, e] of sents) {
+        for (const [a, b] of splitLong(text, s, e, 1100)) chunks.push({ s: a, e: b, p: pi });
+      }
+      return;
+    }
+    if (mode === 'online') {
+      const max = 520;
       let cur = null;
       for (const [s, e] of sents) for (const [a, b] of splitLong(text, s, e, max)) { if (cur && b - cur[0] <= max) cur[1] = b; else { if (cur) chunks.push({ s: cur[0], e: cur[1], p: pi }); cur = [a, b]; } }
       if (cur) chunks.push({ s: cur[0], e: cur[1], p: pi });
@@ -2957,22 +2981,22 @@ const TTS = {
     return CONFIG.tts.voicerssUrl + '?' + q.toString();
   },
   async edgeAudio(text, signal, cacheBookId = App.book && App.book.id) {
-    const rate = clamp(A.rate, 0.5, 2), voice = A.edgeVoice;
-    const cacheId = cacheBookId ? 'edge-audio:' + cacheBookId + ':' + voice + ':' + rate + ':' + hashStr(text) : '';
+    const voice = A.edgeVoice;
+    const cacheId = cacheBookId ? 'edge-audio:v2:' + cacheBookId + ':' + voice + ':' + hashStr(text) : '';
     if (cacheId) {
       try {
         const cached = await TTSAudioCache.get(cacheId);
-        if (cached && cached.text === text && cached.voice === voice && cached.rate === rate) { this.logEv('edge-cache-hit', cacheId); return cached.audio; }
+        if (cached && cached.text === text && cached.voice === voice) { this.logEv('edge-cache-hit', cacheId); return cached.audio; }
       } catch (e) { this.logEv('edge-cache-read-failed', e.message); }
     }
     const endpoint = edgeProxyUrl();
     if (!endpoint) throw new Error('Add your Edge TTS Worker URL in audio settings');
     for (let attempt = 0; ; attempt++) {
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, rate }), signal });
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, rate: 1 }), signal });
       if (response.ok) {
         const audio = await response.blob();
         if (cacheId) {
-          try { await TTSAudioCache.put({ id: cacheId, bookId: cacheBookId, text, voice, rate, audio, size: audio.size, lastUsed: Date.now() }); }
+          try { await TTSAudioCache.put({ id: cacheId, bookId: cacheBookId, text, voice, audio, size: audio.size, lastUsed: Date.now() }); }
           catch (e) { this.logEv('edge-cache-write-failed', e.message); }
         }
         return audio;
@@ -3071,7 +3095,9 @@ const TTS = {
       const a = this.audioEl || (this.audioEl = new window.Audio());
       if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
       this.audioUrl = URL.createObjectURL(blob);
-      a.preload = 'auto'; a.volume = clamp(A.volume / 100, 0, 1);
+      a.preload = 'auto'; a.volume = clamp(A.volume / 100, 0, 1); a.playbackRate = clamp(A.rate, 0.5, 2.5);
+      if ('preservesPitch' in a) a.preservesPitch = true;
+      if ('webkitPreservesPitch' in a) a.webkitPreservesPitch = true;
       a.onplaying = () => {
         if (tk !== this.token) return;
         this.startFails = 0; this.errors = 0; this.lastEventAt = this.startedAt = performance.now(); this.logEv('edge-start', i);
@@ -3730,12 +3756,32 @@ function bindMore() {
    ===================================================================== */
 const AI = {
   msgs: [], busy: false,
-  token() { return LS.get('reader.ai.token', '') || CONFIG.ai.token; },
-  model() { return LS.get('reader.ai.model', '') || CONFIG.ai.model; },
-  open(prefill) {
+  pendingContext: '',
+  token() { return LS.get('reader.ai.token', '') || CONFIG.ai.token || ''; },
+  model() { return LS.get('reader.ai.model', '') || CONFIG.ai.model || 'Qwen/Qwen2.5-7B-Instruct'; },
+  endpointCandidates(prompt) {
+    const encoded = encodeURIComponent(prompt);
+    return [
+      { url: 'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct', mode: 'hf' },
+      { url: `https://text.pollinations.ai/${encoded}?model=qwen-coder&json=false`, mode: 'pollinations' }
+    ];
+  },
+  buildPrompt(rawText) {
+    const b = App.book && App.screen === 'reader' ? App.book : null;
+    const title = b && b.meta && b.meta.title ? b.meta.title : 'this book';
+    const visible = this.visibleText().slice(0, 3000);
+    const selected = this.pendingContext ? `\nSelection context:\n${cleanText(this.pendingContext).slice(0, 1800)}\n` : '';
+    const low = cleanText(rawText || '');
+    const prefix = 'You are a reading assistant inside an ebook. Answer briefly and clearly using the book context below.\n';
+    this.pendingContext = '';
+    return `${prefix}Book title: ${title}\nVisible text:\n${visible || 'No visible text available.'}${selected}\n\nUser question: ${low}`;
+  },
+  open(prefill, context) {
+    this.pendingContext = context || '';
     openSheet('chatSheet');
     this.renderChips(); this.render();
     if (prefill) { $('#chatText').value = prefill; }
+    setTimeout(() => $('#chatText').focus(), 80);
   },
   renderChips() {
     const inBook = !!(App.book && App.screen === 'reader');
@@ -3744,20 +3790,10 @@ const AI = {
   },
   render() {
     const log = $('#chatLog');
-    if (!this.token()) {
-      log.innerHTML = `<div class="msg sys" style="text-align:left;max-width:100%">
-        <b style="color:var(--fg);font-size:15px">Connect a free Hugging Face token</b><br>
-        1. Create a free account at huggingface.co.<br>2. Open Settings → Access Tokens → <i>Create new token</i> → <i>Fine-grained</i>, and tick “Make calls to Inference Providers”.<br>
-        3. Paste the token below. It is stored only on this device.<br><br>Free accounts get a small monthly credit, enough for a few dozen questions.
-        <div class="key-row"><input id="aiToken" type="password" placeholder="hf_…" autocomplete="off" aria-label="Hugging Face token"><button class="small-btn" id="aiSave">Save</button></div>
-        <div class="key-row"><input id="aiModel" value="${esc(this.model())}" aria-label="Model" autocomplete="off"></div>
-        <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener" style="display:inline-block;margin-top:10px;color:var(--accent)">Open Hugging Face tokens ↗</a></div>`;
-      $('#chatSend').disabled = true; return;
-    }
     $('#chatSend').disabled = this.busy;
     if (!this.msgs.length) {
-      const ctx = App.book && App.screen === 'reader' ? `I can see the page you’re reading in “${App.book.meta.title}”. Ask me to summarize, explain or simplify it.` : 'Ask me anything about books and reading.';
-      log.innerHTML = `<div class="msg sys">${esc(ctx)}<br><span style="font-size:12px">Model: ${esc(this.model())} · <button class="dw" id="aiReset" style="color:var(--accent)">change token/model</button></span></div>`;
+      const ctx = App.book && App.screen === 'reader' ? `I can see the current book context in “${App.book.meta.title}”. Ask me to summarize, explain or simplify it.` : 'Ask me anything about books and reading.';
+      log.innerHTML = `<div class="msg sys">${esc(ctx)}<br><span style="font-size:12px">Public model router: tokenless fallback enabled · <button class="dw" id="aiReset" style="color:var(--accent)">reset</button></span></div>`;
       return;
     }
     log.innerHTML = this.msgs.map(m => `<div class="msg ${m.role === 'user' ? 'me' : m.role === 'error' ? 'sys' : 'ai'}">${esc(m.content)}</div>`).join('') + (this.busy ? '<div class="msg ai"><span class="spinner" style="display:inline-block;width:16px;height:16px;border-width:2px;vertical-align:middle"></span></div>' : '');
@@ -3780,34 +3816,47 @@ const AI = {
     const b = App.book; if (!b || b.type !== 'pdf') return;
     try { const info = App.r.info(), out = []; for (let p = info.page; p <= (info.pageTo || info.page); p++) { const tc = await (await b.pdf.getPage(p)).getTextContent(); out.push(tc.items.map(i => i.str).join(' ')); } this.pdfText = cleanText(out.join('\n')); } catch (e) { /* ignore */ }
   },
+  async publicCompletion(prompt) {
+    let lastErr = null;
+    for (const c of this.endpointCandidates(prompt)) {
+      try {
+        if (c.mode === 'hf') {
+          const res = await fetchWithTimeout(c.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 600, temperature: 0.4, top_p: 0.95 } })
+          }, 60000);
+          if (res.status === 401 || res.status === 403) { lastErr = new Error('HF unauthorized'); continue; }
+          if (!res.ok) { lastErr = new Error('HTTP ' + res.status); continue; }
+          const body = await res.text();
+          if (!body) throw new Error('Empty response from Hugging Face');
+          try {
+            const json = JSON.parse(body);
+            const value = Array.isArray(json) ? (json[0] && (json[0].generated_text || json[0].text)) : (json.generated_text || json.answer || json.output_text || json.message);
+            if (value) return String(value).replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          } catch (e) { /* fall through to plain text */ }
+          return String(body).replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        }
+        const res = await fetchWithTimeout(c.url, { headers: { Accept: 'text/plain' } }, 60000);
+        if (!res.ok) { lastErr = new Error('HTTP ' + res.status); continue; }
+        const text = await res.text();
+        if (text) return String(text).trim();
+      } catch (err) { lastErr = err; }
+    }
+    throw lastErr || new Error('No public AI endpoint available');
+  },
   async send(text) {
     text = cleanText(text); if (!text || this.busy) return;
-    if (!this.token()) { this.render(); return; }
     this.msgs.push({ role: 'user', content: text }); this.busy = true; this.render();
     $('#chatText').value = '';
     await this.pdfPageText();
-    const b = App.book && App.screen === 'reader' ? App.book : null;
-    const page = b ? this.visibleText().slice(0, 6000) : '';
-    const sys = 'You are a helpful reading assistant inside an ebook reader. Answer clearly and concisely in the language the user writes in.' +
-      (b ? `\nBook: “${b.meta.title}”${b.meta.author ? ' by ' + b.meta.author : ''}. Current section: ${b.type === 'pdf' ? 'page ' + (App.r.info() || {}).page : chapterTitleFor(App.r.getLoc().ch)}.\nThe text currently visible on the reader's screen:\n<<<\n${page}\n>>>\nWhen asked to summarize, explain, or simplify “this page/passage”, use that text.` : '');
-    const history = this.msgs.filter(m => m.role === 'user' || m.role === 'assistant').slice(-10);
+    const prompt = this.buildPrompt(text);
     try {
-      const res = await fetchWithTimeout(CONFIG.ai.endpoint, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + this.token() },
-        body: JSON.stringify({ model: this.model(), messages: [{ role: 'system', content: sys }].concat(history), max_tokens: 800, temperature: 0.4 })
-      }, 60000);
-      let data = null; try { data = await res.json(); } catch (e) { /* non-JSON */ }
-      if (!res.ok) {
-        const msg = data && (data.error && (data.error.message || data.error) || data.message) || ('HTTP ' + res.status);
-        const hint = res.status === 401 ? 'The token was rejected. Check that it has “Inference Providers” permission.' : res.status === 402 ? 'The free monthly credit is used up. It resets next month (or add credit on Hugging Face).' : (res.status === 400 || res.status === 404) ? 'This model isn’t available. Change the model name (tap “change token/model”).' : res.status === 429 ? 'Too many requests — wait a minute.' : '';
-        throw new Error((hint ? hint + ' ' : '') + '(' + String(msg).slice(0, 160) + ')');
-      }
-      let answer = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-      answer = String(answer || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      const answer = await this.publicCompletion(prompt);
       this.msgs.push({ role: 'assistant', content: answer || '(empty answer)' });
     } catch (e) {
       const offline = !navigator.onLine;
-      this.msgs.push({ role: 'error', content: offline ? 'You’re offline — the assistant needs an internet connection.' : (e.name === 'AbortError' ? 'The model took too long to answer. Try again.' : (/Failed to fetch|NetworkError|Load failed/i.test(e.message) ? 'Couldn’t reach Hugging Face (network or browser blocked the request).' : e.message)) });
+      this.msgs.push({ role: 'error', content: offline ? 'You’re offline — the assistant needs an internet connection.' : (e.name === 'AbortError' ? 'The model took too long to answer. Try again.' : e.message || 'The public model router failed. Please try again.') });
     } finally { this.busy = false; this.render(); }
   },
   bind() {
@@ -3816,10 +3865,7 @@ const AI = {
     $('#chatText').addEventListener('input', e => { const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(120, t.scrollHeight) + 'px'; });
     $('#chatChips').addEventListener('click', e => { const b = e.target.closest('button'); if (b) this.send(b.textContent); });
     $('#chatClear').addEventListener('click', () => { this.msgs = []; this.render(); });
-    $('#chatLog').addEventListener('click', e => {
-      if (e.target.id === 'aiSave') { const t = $('#aiToken').value.trim(), m = $('#aiModel').value.trim(); if (!t) { toast('Paste your token first'); return; } LS.set('reader.ai.token', t); if (m) LS.set('reader.ai.model', m); this.render(); toast('Token saved on this device'); }
-      if (e.target.id === 'aiReset') { LS.del('reader.ai.token'); this.render(); }
-    });
+    $('#chatLog').addEventListener('click', e => { if (e.target.id === 'aiReset') { LS.del('reader.ai.token'); LS.del('reader.ai.model'); this.render(); } });
   }
 };
 

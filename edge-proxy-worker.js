@@ -194,19 +194,31 @@ async function synthesize(text, voice, rate) {
   try {
     const date = new Date().toString();
     await ws.send(lines({ 'Content-Type': 'application/json; charset=utf-8', Path: 'speech.config', 'X-Timestamp': date }) + '\r\n' +
-      JSON.stringify({ context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: false }, outputFormat: 'audio-24khz-48kbitrate-mono-mp3' } } } }));
+    JSON.stringify({ context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: true }, outputFormat: 'audio-24khz-48kbitrate-mono-mp3' } } } }));
     const lang = voice.split('-').slice(0, 2).join('-');
     const pct = Math.round((rate - 1) * 100);
     const ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='" + lang + "'><voice name='" + voice +
       "'><prosody pitch='+0Hz' rate='" + (pct >= 0 ? '+' : '') + pct + "%' volume='+0%'>" + esc(text) + '</prosody></voice></speak>';
     await ws.send(lines({ 'Content-Type': 'application/ssml+xml', Path: 'ssml', 'X-RequestId': id, 'X-Timestamp': date }) + '\r\n' + ssml);
 
-    let audio = new Uint8Array(0);
+    let audio = new Uint8Array(0), boundaries = [];
     for (;;) {
       const m = await ws.next();
       if (!m) break;
       if (m.text) {
-        const p = /Path:\s*([\w.]+)/.exec(dec.decode(m.data));
+        const message = dec.decode(m.data), p = /Path:\s*([\w.]+)/.exec(message);
+        if (p && p[1] === 'audio.metadata') {
+          const separator = message.indexOf('\r\n\r\n');
+          try {
+            const metadata = JSON.parse(message.slice(separator + 4));
+            for (const item of metadata.Metadata || []) {
+              const data = item && item.Data, offset = data && data.Offset, text = data && data.text && data.text.Text;
+              if (item.Type === 'WordBoundary' && Number.isFinite(offset) && typeof text === 'string' && text) {
+                boundaries.push({ offset, duration: Number(data.Duration) || 0, text });
+              }
+            }
+          } catch (e) { /* boundary metadata is optional */ }
+        }
         if (p && p[1] === 'turn.end') break;
       } else {
         const hl = new DataView(m.data.buffer, m.data.byteOffset, m.data.byteLength).getInt16(0);
@@ -214,7 +226,7 @@ async function synthesize(text, voice, rate) {
       }
     }
     if (!audio.byteLength) throw new Error('the voice service sent no audio');
-    return audio;
+    return { audio, boundaries };
   } finally { ws.close(); }
 }
 
@@ -222,7 +234,7 @@ export default {
   async fetch(request) {
     const origin = request.headers.get('Origin') || '';
     const allowed = ALLOWED_ORIGINS.includes(origin);
-    const cors = allowed ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Expose-Headers': 'Retry-After', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : { Vary: 'Origin' };
+    const cors = allowed ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Expose-Headers': 'Retry-After, X-TTS-Word-Boundaries', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : { Vary: 'Origin' };
     const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
     if (request.method === 'OPTIONS') return new Response(null, { status: allowed ? 204 : 403, headers: cors });
@@ -239,11 +251,14 @@ export default {
     if (!/^[A-Za-z0-9-]{5,64}Neural$/.test(voice)) return json({ error: 'unknown voice name' }, 400);
 
     try {
-      const audio = await Promise.race([
+      const { audio, boundaries } = await Promise.race([
         synthesize(text, voice, rate),
         new Promise((_, rej) => setTimeout(() => rej(new Error('the voice service took too long')), TIMEOUT_MS))
       ]);
-      return new Response(audio, { headers: { ...cors, 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' } });
+      const boundaryHeader = encodeURIComponent(JSON.stringify(boundaries));
+      const headers = { ...cors, 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' };
+      if (boundaryHeader.length <= 8192) headers['X-TTS-Word-Boundaries'] = boundaryHeader;
+      return new Response(audio, { headers });
     } catch (e) {
       const status = Number(e && e.status);
       const headers = status === 429 && e.retryAfter ? { 'Retry-After': e.retryAfter } : {};
