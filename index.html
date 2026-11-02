@@ -2917,9 +2917,9 @@ const TTS = {
       }
       const retryAfter = response.headers.get('Retry-After');
       const seconds = Number(retryAfter), dateDelay = Date.parse(retryAfter) - Date.now();
-      let delay = retryAfter ? (Number.isFinite(seconds) ? seconds * 1000 : dateDelay) : 1500 * (2 ** attempt);
-      if (!Number.isFinite(delay) || delay < 0) delay = 1500 * (2 ** attempt);
-      delay = clamp(delay, 1000, 30000);
+      let delay = retryAfter ? (Number.isFinite(seconds) ? seconds * 1000 : dateDelay) : 10000 * (2 ** attempt);
+      if (!Number.isFinite(delay) || delay < 0) delay = 10000 * (2 ** attempt);
+      delay = clamp(delay, 1000, 300000);
       this.logEv('edge-rate-limit', 'retry ' + (attempt + 1) + ' in ' + Math.ceil(delay / 1000) + 's');
       toast('EdgeTTS is rate-limited; retrying shortly', 2500);
       await this.waitEdgeRetry(delay, signal);

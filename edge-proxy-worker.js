@@ -141,8 +141,16 @@ async function openSocket(url, headers) {
     if (done) throw new Error('the voice service closed the connection during the handshake');
     buf = concat(buf, value);
   }
-  const status = Number(dec.decode(buf.slice(0, end)).split('\r\n')[0].split(' ')[1]);
-  if (status !== 101) { socket.close().catch(() => {}); throw new Error('the voice service refused the connection (HTTP ' + status + ')'); }
+  const responseHeaders = dec.decode(buf.slice(0, end));
+  const status = Number(responseHeaders.split('\r\n')[0].split(' ')[1]);
+  if (status !== 101) {
+    const retryHeader = responseHeaders.split('\r\n').find(line => /^retry-after:/i.test(line));
+    socket.close().catch(() => {});
+    const error = new Error('the voice service refused the connection (HTTP ' + status + ')');
+    error.status = status;
+    if (retryHeader) error.retryAfter = retryHeader.slice(retryHeader.indexOf(':') + 1).trim();
+    throw error;
+  }
   buf = buf.slice(end + 4);
 
   let frags = null, fragOp = 0, closed = false;
@@ -214,7 +222,7 @@ export default {
   async fetch(request) {
     const origin = request.headers.get('Origin') || '';
     const allowed = ALLOWED_ORIGINS.includes(origin);
-    const cors = allowed ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : { Vary: 'Origin' };
+    const cors = allowed ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Expose-Headers': 'Retry-After', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : { Vary: 'Origin' };
     const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
     if (request.method === 'OPTIONS') return new Response(null, { status: allowed ? 204 : 403, headers: cors });
@@ -236,6 +244,13 @@ export default {
         new Promise((_, rej) => setTimeout(() => rej(new Error('the voice service took too long')), TIMEOUT_MS))
       ]);
       return new Response(audio, { headers: { ...cors, 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' } });
-    } catch (e) { return json({ error: String((e && e.message) || e) }, 502); }
+    } catch (e) {
+      const status = Number(e && e.status);
+      const headers = status === 429 && e.retryAfter ? { 'Retry-After': e.retryAfter } : {};
+      return new Response(JSON.stringify({ error: String((e && e.message) || e) }), {
+        status: status === 429 ? 429 : 502,
+        headers: { ...cors, ...headers, 'Content-Type': 'application/json' }
+      });
+    }
   }
 };
