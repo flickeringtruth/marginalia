@@ -718,6 +718,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn('localStorage full?', e); } },
   del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
 };
+const TTS_AUDIO_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const DB = (() => {
   let dbp = null;
   function open() {
@@ -729,7 +730,7 @@ const DB = (() => {
         if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files');
       };
-      r.onsuccess = () => res(r.result);
+      r.onsuccess = () => { r.result.onversionchange = () => r.result.close(); res(r.result); };
       r.onerror = () => { dbp = null; rej(r.error || new Error('IndexedDB error')); };
     });
     return dbp;
@@ -748,7 +749,59 @@ const DB = (() => {
     allMeta: () => tx('meta', 'readonly', s => s.getAll()),
     putFile: (id, buf) => tx('files', 'readwrite', s => s.put(buf, id)),
     getFile: id => tx('files', 'readonly', s => s.get(id)),
-    async del(id) { await tx('meta', 'readwrite', s => s.delete(id)); await tx('files', 'readwrite', s => s.delete(id)); }
+    async del(id) { await tx('meta', 'readwrite', s => s.delete(id)); await tx('files', 'readwrite', s => s.delete(id)); await TTSAudioCache.deleteBook(id).catch(() => {}); }
+  };
+})();
+const TTSAudioCache = (() => {
+  let dbp = null;
+  function open() {
+    if (!dbp) dbp = new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error('IndexedDB unavailable'));
+      const request = indexedDB.open('books-reader-tts-audio', 1);
+      request.onupgradeneeded = () => {
+        const store = request.result.createObjectStore('audio', { keyPath: 'id' });
+        store.createIndex('bookId', 'bookId');
+      };
+      request.onsuccess = () => { request.result.onversionchange = () => request.result.close(); resolve(request.result); };
+      request.onerror = () => { dbp = null; reject(request.error || new Error('TTS cache database error')); };
+    });
+    return dbp;
+  }
+  async function tx(mode, run) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('audio', mode), request = run(transaction.objectStore('audio'));
+      transaction.oncomplete = () => resolve(request ? request.result : undefined);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('TTS cache transaction aborted'));
+    });
+  }
+  return {
+    get(id) { return tx('readwrite', store => {
+      const request = store.get(id);
+      request.onsuccess = () => { if (request.result) store.put(Object.assign({}, request.result, { lastUsed: Date.now() })); };
+      return request;
+    }); },
+    put(entry) { return tx('readwrite', store => {
+      const request = store.put(entry);
+      request.onsuccess = () => {
+        const all = store.index('bookId').getAll(entry.bookId);
+        all.onsuccess = () => {
+          const entries = all.result.sort((a, b) => a.lastUsed - b.lastUsed);
+          let size = entries.reduce((total, item) => total + item.size, 0);
+          for (const item of entries) {
+            if (size <= TTS_AUDIO_CACHE_MAX_BYTES) break;
+            if (item.id !== entry.id) { store.delete(item.id); size -= item.size; }
+          }
+        };
+      };
+      return request;
+    }); },
+    deleteBook(bookId) { return tx('readwrite', store => {
+      const request = store.index('bookId').openCursor(IDBKeyRange.only(bookId));
+      request.onsuccess = () => { const cursor = request.result; if (cursor) { cursor.delete(); cursor.continue(); } };
+      return request;
+    }); }
   };
 })();
 
@@ -2691,7 +2744,7 @@ const TTS = {
   },
   vkey() { if (this.online()) return A.engine === 'edge' ? 'edge:' + A.edgeVoice : 'vrss'; const v = this.voice(); return v ? v.voiceURI : 'default'; },
   charsPerSec() { return (this.cps[this.vkey()] || 14.5) * clamp(A.rate, 0.1, 10); },
-  online() { return (A.engine === 'voicerss' && !!(A.vrssKey || CONFIG.tts.voicerssKey) || A.engine === 'edge' && !!edgeProxyUrl()) && !this.onlineDown; },
+  online() { return (A.engine === 'voicerss' && !!(A.vrssKey || CONFIG.tts.voicerssKey) || A.engine === 'edge') && !this.onlineDown; },
   mode() { return this.online() ? A.engine === 'edge' ? 'edge' : 'online' : A.cadence ? 'cadence' : 'plain'; },
   mk(ch) { return ch + '|' + this.mode(); },
   async getModel(ch) {
@@ -2903,12 +2956,27 @@ const TTS = {
     if (ssml) q.set('ssml', 'true');
     return CONFIG.tts.voicerssUrl + '?' + q.toString();
   },
-  async edgeAudio(text, signal) {
+  async edgeAudio(text, signal, cacheBookId = App.book && App.book.id) {
+    const rate = clamp(A.rate, 0.5, 2), voice = A.edgeVoice;
+    const cacheId = cacheBookId ? 'edge-audio:' + cacheBookId + ':' + voice + ':' + rate + ':' + hashStr(text) : '';
+    if (cacheId) {
+      try {
+        const cached = await TTSAudioCache.get(cacheId);
+        if (cached && cached.text === text && cached.voice === voice && cached.rate === rate) { this.logEv('edge-cache-hit', cacheId); return cached.audio; }
+      } catch (e) { this.logEv('edge-cache-read-failed', e.message); }
+    }
     const endpoint = edgeProxyUrl();
     if (!endpoint) throw new Error('Add your Edge TTS Worker URL in audio settings');
     for (let attempt = 0; ; attempt++) {
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: A.edgeVoice, rate: clamp(A.rate, 0.5, 2) }), signal });
-      if (response.ok) return response.blob();
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, rate }), signal });
+      if (response.ok) {
+        const audio = await response.blob();
+        if (cacheId) {
+          try { await TTSAudioCache.put({ id: cacheId, bookId: cacheBookId, text, voice, rate, audio, size: audio.size, lastUsed: Date.now() }); }
+          catch (e) { this.logEv('edge-cache-write-failed', e.message); }
+        }
+        return audio;
+      }
       let message = 'HTTP ' + response.status;
       try { const data = await response.json(); if (data.error) message = data.error; } catch (e) { /* ignore */ }
       const rateLimited = response.status === 429 || /\bHTTP\s*429\b/i.test(message);
@@ -3549,7 +3617,7 @@ function previewVoice() {
   const sample = /^nl/i.test(bookLang()) ? 'Zo klinkt deze stem bij het voorlezen. Hoor je het verschil?' : 'This is how this voice sounds when reading your book. Can you hear the difference?';
   if (A.engine === 'edge') {
     if (!edgeProxyUrl()) { toast('Enter your EdgeTTS Worker URL below'); return; }
-    TTS.edgeAudio(sample).then(blob => {
+    TTS.edgeAudio(sample, undefined, null).then(blob => {
       const url = URL.createObjectURL(blob), a = new window.Audio(url);
       a.volume = clamp(A.volume / 100, 0, 1);
       const cleanup = () => URL.revokeObjectURL(url);
