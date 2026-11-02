@@ -218,7 +218,7 @@ export default {
     const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
     if (request.method === 'OPTIONS') return new Response(null, { status: allowed ? 204 : 403, headers: cors });
-    if (request.method === 'GET') return new Response('Marginalia voice proxy is running.', { headers: { 'Content-Type': 'text/plain' } });
+    if (request.method === 'GET') return new Response('Marginalia voice proxy is running.', { headers: { ...cors, 'Content-Type': 'text/plain' } });
     if (request.method !== 'POST') return json({ error: 'use POST' }, 405);
     if (!allowed) return json({ error: 'this site is not allowed to use the proxy' }, 403);
 
