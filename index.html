@@ -2905,13 +2905,36 @@ const TTS = {
   async edgeAudio(text, signal) {
     const endpoint = edgeProxyUrl();
     if (!endpoint) throw new Error('Add your Edge TTS Worker URL in audio settings');
-    const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: A.edgeVoice, rate: clamp(A.rate, 0.5, 2) }), signal });
-    if (!response.ok) {
+    for (let attempt = 0; ; attempt++) {
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice: A.edgeVoice, rate: clamp(A.rate, 0.5, 2) }), signal });
+      if (response.ok) return response.blob();
       let message = 'HTTP ' + response.status;
       try { const data = await response.json(); if (data.error) message = data.error; } catch (e) { /* ignore */ }
-      throw new Error(message);
+      const rateLimited = response.status === 429 || /\bHTTP\s*429\b/i.test(message);
+      if (!rateLimited || attempt >= 3) {
+        const error = new Error(message); error.status = response.status; error.rateLimited = rateLimited; throw error;
+      }
+      const retryAfter = response.headers.get('Retry-After');
+      const seconds = Number(retryAfter), dateDelay = Date.parse(retryAfter) - Date.now();
+      let delay = retryAfter ? (Number.isFinite(seconds) ? seconds * 1000 : dateDelay) : 1500 * (2 ** attempt);
+      if (!Number.isFinite(delay) || delay < 0) delay = 1500 * (2 ** attempt);
+      delay = clamp(delay, 1000, 30000);
+      this.logEv('edge-rate-limit', 'retry ' + (attempt + 1) + ' in ' + Math.ceil(delay / 1000) + 's');
+      toast('EdgeTTS is rate-limited; retrying shortly', 2500);
+      await this.waitEdgeRetry(delay, signal);
     }
-    return response.blob();
+  },
+  waitEdgeRetry(ms, signal) {
+    return new Promise((resolve, reject) => {
+      let timer;
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        const error = new Error('request aborted'); error.name = 'AbortError'; reject(error);
+      };
+      timer = setTimeout(() => { if (signal) signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+      if (signal) { if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true }); }
+    });
   },
   stopOnline() {
     if (this.edgeRequest) { this.edgeRequest.abort(); this.edgeRequest = null; }
@@ -2978,11 +3001,12 @@ const TTS = {
       this.onlineTimer = setTimeout(() => { if (tk === this.token && this.state === 'playing' && a.paused && a.currentTime === 0) this.edgeError(i, from, tk, 'playback did not start'); }, 12000);
     } catch (err) {
       if (tk !== this.token || err.name === 'AbortError') return;
-      this.edgeError(i, from, tk, err.message);
+      this.edgeError(i, from, tk, err.message, err.rateLimited);
     }
   },
-  edgeError(i, from, tk, message) {
+  edgeError(i, from, tk, message, rateLimited) {
     if (tk !== this.token) return;
+    if (rateLimited) { this.logEv('edge-rate-limit', 'retries exhausted'); this.pause(); toast('EdgeTTS is still rate-limited. Reading is paused; press Play to retry.', 5000); return; }
     this.logEv('edge-error', message); this.stopOnline(); this.onlineDown = true;
     toast('EdgeTTS failed (' + message + ') — using device voices', 4200);
     this.speakFrom(this.ch, this.pos || from);
@@ -3320,7 +3344,7 @@ function buildAudioSettings() {
     </div>
     <div id="edgeBox" class="hidden" style="margin-top:10px">
       <div class="key-row"><input id="edgeProxy" type="url" placeholder="https://your-worker.workers.dev" autocomplete="off" autocapitalize="off" aria-label="EdgeTTS Worker URL"><button class="small-btn" id="edgeSave">Save</button></div>
-      <div class="row" style="margin-top:6px"><span>Voice</span><select id="edgeVoice" aria-label="EdgeTTS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px">${EDGE_VOICES.map(v => `<option value="${v}">${v}</option>`).join('')}</select></div>
+      <div class="row" style="margin-top:6px"><span>Voice</span><select id="edgeVoice" aria-label="EdgeTTS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px">${EDGE_VOICES.map(v => `<option value="${v}">${v}</option>`).join('')}</select><button class="small-btn" id="edgePreview">Preview</button></div>
       <p class="hint">Enter the Cloudflare Worker address used by the Edge voice test. It is saved on this device.</p>
     </div>
   </div>
@@ -3418,6 +3442,7 @@ function bindAudioSettings() {
   body.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.id === 'voicePreview') { previewVoice(); return; }
+    if (b.id === 'edgePreview') { previewVoice(); return; }
     if (b.id === 'vrssSave') { A.vrssKey = $('#vrssKey').value.trim(); saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); toast(A.vrssKey ? 'VoiceRSS key saved on this device' : 'Key removed'); syncAudioSettingsUI(); TTS.restartSoon(); return; }
     if (b.id === 'edgeSave') {
       const proxy = $('#edgeProxy').value.trim().replace(/\/+$/, '');
@@ -3499,18 +3524,19 @@ function runSpeechTest() {
 function previewVoice() {
   if (TTS.state === 'playing' || TTS.state === 'loading') TTS.pause();
   const sample = /^nl/i.test(bookLang()) ? 'Zo klinkt deze stem bij het voorlezen. Hoor je het verschil?' : 'This is how this voice sounds when reading your book. Can you hear the difference?';
+  if (A.engine === 'edge') {
+    if (!edgeProxyUrl()) { toast('Enter your EdgeTTS Worker URL below'); return; }
+    TTS.edgeAudio(sample).then(blob => {
+      const url = URL.createObjectURL(blob), a = new window.Audio(url);
+      a.volume = clamp(A.volume / 100, 0, 1);
+      const cleanup = () => URL.revokeObjectURL(url);
+      a.onended = cleanup; a.onerror = () => { cleanup(); toast('EdgeTTS preview failed'); };
+      const p = a.play(); if (p && p.catch) p.catch(() => { cleanup(); toast('EdgeTTS preview failed to play'); });
+    }).catch(err => toast('EdgeTTS preview failed: ' + err.message));
+    return;
+  }
   if (TTS.online()) {
-    if (A.engine === 'edge') {
-      TTS.edgeAudio(sample).then(blob => {
-        const url = URL.createObjectURL(blob), a = new window.Audio(url);
-        a.volume = clamp(A.volume / 100, 0, 1);
-        const cleanup = () => URL.revokeObjectURL(url);
-        a.onended = cleanup; a.onerror = () => { cleanup(); toast('EdgeTTS preview failed'); };
-        const p = a.play(); if (p && p.catch) p.catch(() => { cleanup(); toast('EdgeTTS preview failed to play'); });
-      }).catch(err => toast('EdgeTTS preview failed: ' + err.message));
-    } else {
-      const a = new window.Audio(TTS.vrssUrl(sample)); a.volume = clamp(A.volume / 100, 0, 1); a.play().catch(() => toast('VoiceRSS preview failed — check the key'));
-    }
+    const a = new window.Audio(TTS.vrssUrl(sample)); a.volume = clamp(A.volume / 100, 0, 1); a.play().catch(() => toast('VoiceRSS preview failed — check the key'));
     return;
   }
   if (!TTS_OK) return;
