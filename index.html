@@ -2624,9 +2624,10 @@ async function buildSpeechModel(ch, mode) {
   const chunks = [];
   paras.forEach((p, pi) => {
     const sents = splitSentences(text, p.s, p.e);
-    if (mode === 'online') { // fewer, longer requests (VoiceRSS free plan: 350/day): merge sentences up to ~520 chars
+    if (mode === 'online' || mode === 'edge') {
+      const max = mode === 'edge' ? 1100 : 520;
       let cur = null;
-      for (const [s, e] of sents) for (const [a, b] of splitLong(text, s, e, 520)) { if (cur && b - cur[0] <= 520) cur[1] = b; else { if (cur) chunks.push({ s: cur[0], e: cur[1], p: pi }); cur = [a, b]; } }
+      for (const [s, e] of sents) for (const [a, b] of splitLong(text, s, e, max)) { if (cur && b - cur[0] <= max) cur[1] = b; else { if (cur) chunks.push({ s: cur[0], e: cur[1], p: pi }); cur = [a, b]; } }
       if (cur) chunks.push({ s: cur[0], e: cur[1], p: pi });
       return;
     }
@@ -2673,7 +2674,7 @@ function rangeRectsFor(map, s, e) {
 const TTS = {
   state: 'idle',            // idle | loading | playing | paused
   model: null, models: new Map(), ch: -1, pos: 0, idx: 0, base: 0, token: 0,
-  utt: null, uttLen: 0, edgeRequest: null, audioUrl: '', startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
+  utt: null, uttLen: 0, edgeRequest: null, edgePrefetch: null, audioUrl: '', startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
   hasBoundary: new Map(), cps: LS.get('reader.audio.cps', {}),
   ticker: 0, watchdog: 0, sylTimers: [], unit: null, word: null, trail: [],
   els: new Map(), layer: null, driving: 0, userAt: 0, suspended: false, lastScrollH: 0, lastVisCheck: 0,
@@ -2691,7 +2692,7 @@ const TTS = {
   vkey() { if (this.online()) return A.engine === 'edge' ? 'edge:' + A.edgeVoice : 'vrss'; const v = this.voice(); return v ? v.voiceURI : 'default'; },
   charsPerSec() { return (this.cps[this.vkey()] || 14.5) * clamp(A.rate, 0.1, 10); },
   online() { return (A.engine === 'voicerss' && !!(A.vrssKey || CONFIG.tts.voicerssKey) || A.engine === 'edge' && !!edgeProxyUrl()) && !this.onlineDown; },
-  mode() { return this.online() ? 'online' : A.cadence ? 'cadence' : 'plain'; },
+  mode() { return this.online() ? A.engine === 'edge' ? 'edge' : 'online' : A.cadence ? 'cadence' : 'plain'; },
   mk(ch) { return ch + '|' + this.mode(); },
   async getModel(ch) {
     const key = this.mk(ch);
@@ -2924,6 +2925,18 @@ const TTS = {
       await this.waitEdgeRetry(delay, signal);
     }
   },
+  requestEdgeChunk(i, from) {
+    const c = this.model.chunks[i], text = this.model.text.slice(from, c.e).replace(/\s+/g, ' ');
+    const controller = new AbortController();
+    const promise = this.edgeAudio(text, controller.signal).then(blob => ({ blob }), error => ({ error }));
+    return { i, from, text, controller, promise };
+  },
+  prefetchEdgeChunk(i, tk) {
+    if (tk !== this.token || i >= this.model.chunks.length || this.edgePrefetch) return;
+    const request = this.requestEdgeChunk(i, this.model.chunks[i].s);
+    this.edgePrefetch = request;
+    this.logEv('edge-prefetch', i);
+  },
   waitEdgeRetry(ms, signal) {
     return new Promise((resolve, reject) => {
       let timer;
@@ -2938,6 +2951,7 @@ const TTS = {
   },
   stopOnline() {
     if (this.edgeRequest) { this.edgeRequest.abort(); this.edgeRequest = null; }
+    if (this.edgePrefetch) { this.edgePrefetch.controller.abort(); this.edgePrefetch = null; }
     const a = this.audioEl;
     if (a) { try { a.onplaying = a.onended = a.onerror = null; a.pause(); } catch (e) { /* ignore */ } }
     if (this.audioUrl) { URL.revokeObjectURL(this.audioUrl); this.audioUrl = ''; }
@@ -2971,13 +2985,21 @@ const TTS = {
     const n = m.chunks[i + 1]; if (n) { const pre = new window.Audio(); pre.preload = 'auto'; pre.src = this.vrssUrl(m.text.slice(n.s, n.e).replace(/\s+/g, ' ')); this.preAudio = pre; } // warm the next request
   },
   async speakChunkEdge(i, from, tk) {
-    const m = this.model, c = m.chunks[i], text = m.text.slice(from, c.e).replace(/\s+/g, ' ');
+    const m = this.model;
     this.idx = i; this.base = from; this.setPos(from, 'chunk');
-    const controller = new AbortController(); this.edgeRequest = controller;
+    let request = this.edgePrefetch;
+    if (request && request.i === i && request.from === from) this.edgePrefetch = null;
+    else {
+      if (request) { request.controller.abort(); this.edgePrefetch = null; }
+      request = this.requestEdgeChunk(i, from);
+    }
+    this.edgeRequest = request.controller;
     try {
-      const blob = await this.edgeAudio(text, controller.signal);
+      const result = await request.promise;
+      if (this.edgeRequest === request.controller) this.edgeRequest = null;
       if (tk !== this.token) return;
-      this.edgeRequest = null;
+      if (result.error) throw result.error;
+      const blob = result.blob, text = request.text;
       const a = this.audioEl || (this.audioEl = new window.Audio());
       if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
       this.audioUrl = URL.createObjectURL(blob);
@@ -2986,6 +3008,7 @@ const TTS = {
         if (tk !== this.token) return;
         this.startFails = 0; this.errors = 0; this.lastEventAt = this.startedAt = performance.now(); this.logEv('edge-start', i);
         clearTimeout(this.onlineTimer);
+        this.prefetchEdgeChunk(i + 1, tk);
         const len = text.length, tick = () => {
           if (tk !== this.token || this.state !== 'playing') return;
           const d = a.duration; if (d && isFinite(d)) { const off = wordStartAtOrBefore(m.text, from + Math.floor(clamp(a.currentTime / d, 0, 0.999) * len), from); if (off > this.pos) this.setPos(off, 'tick'); }
