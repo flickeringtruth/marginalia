@@ -544,7 +544,14 @@ body.is-pdf #dictFloat{display:none!important}
 /* AI chat */
 #chatSheet{height:88vh;height:88dvh}
 .chat-log{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding:4px 16px 8px;display:flex;flex-direction:column;gap:10px}
-.msg{max-width:88%;padding:10px 14px;border-radius:18px;font-size:15px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;-webkit-user-select:text;user-select:text}
+.msg{max-width:88%;padding:10px 14px;border-radius:18px;font-size:15px;line-height:1.45;white-space:normal;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
+.msg p{margin:0 0 8px}
+.msg p:last-child{margin-bottom:0}
+.msg ul,.msg ol{margin:4px 0 8px;padding-left:22px}
+.msg li{padding-left:2px;margin:2px 0}
+.msg strong{font-weight:700}
+.msg em{font-style:italic}
+.msg code{padding:1px 5px;border-radius:4px;background:rgba(127,127,127,.16);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em}
 .msg.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:6px}
 .msg.ai{align-self:flex-start;background:var(--card);border-bottom-left-radius:6px}
 .msg.sys{align-self:center;background:none;color:var(--muted);font-size:13px;text-align:center;max-width:100%}
@@ -841,6 +848,48 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const cleanText = s => String(s || '').replace(/\s+/g, ' ').trim();
+function renderChatMarkdown(value) {
+  const inline = source => {
+    const code = [];
+    let text = source.replace(/`([^`\n]+)`/g, (_, content) => {
+      const marker = '\u0000' + code.length + '\u0000';
+      code.push('<code>' + esc(content) + '</code>');
+      return marker;
+    });
+    text = esc(text)
+      .replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/(?<!\*)\*\*\*([^*\n]+)\*\*(?!\*)/g, '<strong>$1</strong>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>')
+      .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
+      .replace(/(?<!_)_([^_\n]+)_(?!_)/g, '<em>$1</em>');
+    return text.replace(/\u0000(\d+)\u0000/g, (_, index) => code[+index] || '');
+  };
+  const lines = String(value == null ? '' : value).replace(/\r\n?/g, '\n').split('\n');
+  const blocks = [];
+  let paragraph = [], listType = '';
+  const closeList = () => { if (listType) { blocks.push(listType === 'ol' ? '</ol>' : '</ul>'); listType = ''; } };
+  const flushParagraph = () => { if (paragraph.length) { blocks.push('<p>' + paragraph.map(inline).join('<br>') + '</p>'); paragraph = []; } };
+  for (const line of lines) {
+    const item = line.match(/^\s*([-+*])\s+(.+?)\s*$/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.+?)\s*$/);
+    if (item || numbered) {
+      flushParagraph();
+      const nextType = numbered ? 'ol' : 'ul';
+      if (listType !== nextType) { closeList(); blocks.push('<' + nextType + '>'); listType = nextType; }
+      blocks.push('<li>' + inline((numbered || item)[numbered ? 1 : 2]) + '</li>');
+    } else if (!line.trim()) {
+      flushParagraph();
+      closeList();
+    } else {
+      closeList();
+      paragraph.push(line);
+    }
+  }
+  flushParagraph();
+  closeList();
+  return blocks.join('');
+}
 function debounce(fn, ms) { let t = null, last = []; const f = (...a) => { last = a; clearTimeout(t); t = setTimeout(() => { t = null; fn(...last); }, ms); }; f.flush = () => { if (t !== null) { clearTimeout(t); t = null; fn(...last); } }; return f; }
 function hashStr(s) { let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
@@ -4124,7 +4173,7 @@ const AI = {
       log.innerHTML = `<div class="msg sys">${esc(ctx)}<br><span style="font-size:12px">${provider} · <button class="dw" id="aiReset" style="color:var(--accent)">reset chat</button></span></div>`;
       return;
     }
-    log.innerHTML = this.msgs.map(m => `<div class="msg ${m.role === 'user' ? 'me' : m.role === 'error' ? 'sys' : 'ai'}">${esc(m.content)}</div>`).join('') + (this.busy ? '<div class="msg ai"><span class="spinner" style="display:inline-block;width:16px;height:16px;border-width:2px;vertical-align:middle"></span></div>' : '');
+    log.innerHTML = this.msgs.map(m => `<div class="msg ${m.role === 'user' ? 'me' : m.role === 'error' ? 'sys' : 'ai'}">${m.role === 'assistant' ? renderChatMarkdown(m.content) : esc(m.content)}</div>`).join('') + (this.busy ? '<div class="msg ai"><span class="spinner" style="display:inline-block;width:16px;height:16px;border-width:2px;vertical-align:middle"></span></div>' : '');
     log.scrollTop = log.scrollHeight;
   },
   visibleText() {
