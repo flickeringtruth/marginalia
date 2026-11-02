@@ -3,23 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Edge voice test</title>
+<title>Edge voice test (proxy)</title>
 <style>
 :root{color-scheme:light dark;--bg:#fff;--fg:#111;--card:#f2f2f4;--line:#d0d0d5}
 @media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--card:#1d1d20;--line:#333}}
 body{margin:0;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif}
 h1{font-size:20px;margin:0 0 8px}
 label{display:block;margin:10px 0 4px;font-size:14px}
-select,button,textarea{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:0 12px}
-select,button{min-height:44px}
-textarea{width:100%;box-sizing:border-box;padding:10px;min-height:70px}
+select,button,textarea,input{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:0 12px}
+select,button,input{min-height:44px}
+input,textarea{width:100%;box-sizing:border-box}
+textarea{padding:10px;min-height:70px}
 button{font-weight:600}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px;min-height:160px;overflow-x:auto}
 </style>
 </head>
 <body>
-<h1>Edge voice test</h1>
-<p>Connects to Microsoft’s online neural voices (the ones Readest uses) and plays a sentence. Tap Run and wait a few seconds.</p>
+<h1>Edge voice test (proxy)</h1>
+<p>Sends a sentence to your voice proxy and plays the neural voice it returns.</p>
+<label for="proxy">Proxy address (your Cloudflare Worker, ending in .workers.dev)</label>
+<input id="proxy" type="url" placeholder="https://marginalia-voice.yourname.workers.dev" autocapitalize="off" autocomplete="off">
 <label for="voice">Voice</label>
 <select id="voice">
   <option>en-US-AriaNeural</option><option>en-US-AvaNeural</option><option>en-US-AndrewNeural</option>
@@ -32,141 +35,30 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px
 <p><button id="run">Run test</button> <button id="copy">Copy log</button></p>
 <pre id="log"></pre>
 <script type="module">
-/* Voice connection approach and token routine follow the Readest project (AGPL-3.0),
-   https://github.com/readest/readest — if this file is used in Marginalia, Marginalia should be AGPL-3.0 too. */
 const $ = id => document.getElementById(id), logEl = $('log'), t0 = performance.now();
 const log = s => { logEl.textContent += '[' + ((performance.now() - t0) / 1000).toFixed(1) + 's] ' + s + '\n'; };
 window.addEventListener('error', e => log('✗ error: ' + e.message));
 window.addEventListener('unhandledrejection', e => log('✗ unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
 log('Browser: ' + navigator.userAgent);
-log('Page origin: ' + location.origin + ' | secure context: ' + isSecureContext);
-
-const EDGE_SPEECH_URL = 'wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1';
-const EDGE_API_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
-const CHROMIUM_FULL_VERSION = '143.0.3650.75';
-
-// ==TOKEN-START==
-const WIN_EPOCH_OFFSET = 11644473600;
-const S_TO_NS = 1000000000;
-const GEC_PREFIX_WORDS = [
-  0x79706f43, 0x68676972, 0x43282074, 0x694d2029, 0x736f7263, 0x2074666f, 0x70726f43, 0x7461726f,
-  0x2e6e6f69, 0x6c6c4120, 0x67697220, 0x20737468, 0x65736572, 0x64657672, 0x0000002e
-];
-const GEC_PREFIX_LENGTH = 57;
-const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-const rol16 = x => ((x << 16) | (x >>> 16)) >>> 0;
-const toWords = bytes => {
-  const padded = new Uint8Array(Math.ceil(bytes.length / 8) * 8);
-  padded.set(bytes);
-  const view = new DataView(padded.buffer);
-  return Array.from({ length: padded.length / 4 }, (_, i) => view.getUint32(i * 4, true));
-};
-const cs64WordSwap = (words, a, b) => {
-  let acc = 0, last = 0;
-  for (let i = 0; i < words.length; i += 2) {
-    const x = words[i], y = words[i + 1];
-    let t = rol16((Math.imul(rol16(x), 0xef0569fb) + Math.imul(x, a)) >>> 0);
-    let q = Math.imul(t, 0x76f50f34) >>> 0;
-    acc = (acc + Math.imul(rol16(q), 0xc3efea97) + q) >>> 0;
-    t = rol16((Math.imul(rol16(y), 0xc31713db) + Math.imul(y, b)) >>> 0);
-    q = Math.imul(t, 0x1881ce3c) >>> 0;
-    last = (Math.imul(rol16(q), 0x35bd1ec9) + q) >>> 0;
-    acc = (acc + last) >>> 0;
-  }
-  return [last, acc];
-};
-const cs64Reversible = (words, a, b) => {
-  let state = 0, acc = 0;
-  for (let i = 0; i < words.length; i += 2) {
-    state = Math.imul(state + words[i], a) >>> 0;
-    for (const c of [0xcf98b111, 0x87085b9f, 0x12ceb96d, 0x257e1d83]) state = Math.imul(rol16(state), c) >>> 0;
-    let t = Math.imul(words[i + 1] + state, b) >>> 0;
-    t = Math.imul(rol16(t), 0xa27416f5) >>> 0;
-    t = rol16(Math.imul(rol16(t), 0xd38396ff) >>> 0);
-    acc = (acc + state) >>> 0;
-    state = Math.imul(rol16(Math.imul(t, 0x7c932b89) >>> 0), 0xbfa49f69) >>> 0;
-    acc = (acc + state) >>> 0;
-  }
-  return [state, acc];
-};
-async function generateSecMsGec(now = Date.now()) {
-  let ticks = Math.floor(now / 1000);
-  ticks += WIN_EPOCH_OFFSET;
-  ticks -= ticks % 300;
-  ticks *= S_TO_NS / 100;
-  const suffix = new TextEncoder().encode(ticks.toFixed(0) + EDGE_API_TOKEN);
-  const data = new Uint8Array(GEC_PREFIX_LENGTH + suffix.length);
-  const view = new DataView(data.buffer);
-  GEC_PREFIX_WORDS.forEach((word, i) => view.setUint32(i * 4, word, true));
-  data.set(suffix, GEC_PREFIX_LENGTH);
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
-  const words = toWords(data);
-  const [key0, key1] = toWords(digest);
-  const a = (key0 | 1) >>> 0, b = (key1 | 1) >>> 0;
-  const [s0, s1] = cs64WordSwap(words, a, b);
-  const [r0, r1] = cs64Reversible(words, a, b);
-  const cs64 = new DataView(new ArrayBuffer(8));
-  cs64.setUint32(0, s0 ^ r0, true);
-  cs64.setUint32(4, s1 ^ r1, true);
-  return toHex(new Uint8Array(cs64.buffer)) + '-' + toHex(digest);
-}
-// ==TOKEN-END==
-
-const rand32 = () => { const a = new Uint8Array(16); crypto.getRandomValues(a); return toHex(a); };
-const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-const lines = o => Object.keys(o).map(k => k + ': ' + o[k] + '\r\n').join('');
-
-function synth(text, voice) {
-  return new Promise(async (resolve, reject) => {
-    const id = rand32();
-    log('Making the security token…');
-    const gec = await generateSecMsGec();
-    log('✓ token made');
-    const url = EDGE_SPEECH_URL + '?' + new URLSearchParams({
-      ConnectionId: id, 'Ocp-Apim-Subscription-Key': EDGE_API_TOKEN,
-      'Sec-MS-GEC': gec, 'Sec-MS-GEC-Version': '2-' + CHROMIUM_FULL_VERSION
-    });
-    const date = new Date().toString();
-    const config = lines({ 'Content-Type': 'application/json; charset=utf-8', Path: 'speech.config', 'X-Timestamp': date }) + '\r\n' +
-      JSON.stringify({ context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: false }, outputFormat: 'audio-24khz-48kbitrate-mono-mp3' } } } });
-    const lang = voice.split('-').slice(0, 2).join('-');
-    const ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='" + lang + "'><voice name='" + voice +
-      "'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>" + esc(text) + '</prosody></voice></speak>';
-    const content = lines({ 'Content-Type': 'application/ssml+xml', Path: 'ssml', 'X-RequestId': id, 'X-Timestamp': date }) + '\r\n' + ssml;
-
-    log('Opening connection…');
-    let ws;
-    try { ws = new WebSocket(url); } catch (e) { reject(new Error('could not create the connection: ' + e.message)); return; }
-    ws.binaryType = 'arraybuffer';
-    const parts = []; let bytes = 0, done = false;
-    const timer = setTimeout(() => { if (!done) { done = true; try { ws.close(); } catch (e) { /* ignore */ } reject(new Error('timed out after 30 seconds')); } }, 30000);
-    const finish = fn => { if (done) return; done = true; clearTimeout(timer); fn(); };
-    ws.onopen = () => { log('✓ connection open, sending the request'); ws.send(config); ws.send(content); };
-    ws.onmessage = ev => {
-      if (typeof ev.data === 'string') {
-        const m = /Path:\s*([\w.]+)/.exec(ev.data);
-        if (m && m[1] === 'turn.end') {
-          try { ws.close(); } catch (e) { /* ignore */ }
-          finish(() => bytes ? resolve(new Blob(parts, { type: 'audio/mpeg' })) : reject(new Error('the service sent no audio')));
-        }
-      } else {
-        const hl = new DataView(ev.data).getInt16(0);
-        if (ev.data.byteLength > hl + 2) { parts.push(ev.data.slice(2 + hl)); bytes += ev.data.byteLength - hl - 2; }
-      }
-    };
-    ws.onerror = () => log('… the connection reported an error (browsers give no details)');
-    ws.onclose = ev => {
-      log('Connection closed: code ' + ev.code + (ev.reason ? ', reason: ' + ev.reason : ''));
-      finish(() => reject(new Error(bytes ? 'closed early' : 'closed before any audio arrived (code ' + ev.code + ')')));
-    };
-  });
-}
+log('Page origin: ' + location.origin);
+try { $('proxy').value = localStorage.getItem('marginalia.voiceProxy') || ''; } catch (e) { /* ignore */ }
 
 $('run').onclick = async () => {
+  const base = $('proxy').value.trim().replace(/\/+$/, '');
+  if (!/^https:\/\/.+/.test(base)) { log('✗ Paste your proxy address first (it starts with https://)'); return; }
+  try { localStorage.setItem('marginalia.voiceProxy', base); } catch (e) { /* ignore */ }
   $('run').disabled = true;
   try {
-    const blob = await synth($('text').value.trim() || 'Hello.', $('voice').value);
-    log('✓ received ' + Math.round(blob.size / 1024) + ' KB of audio');
+    log('Checking the proxy is online…');
+    const ping = await fetch(base, { method: 'GET' });
+    log('✓ proxy answered: ' + (await ping.text()).slice(0, 60));
+    log('Asking for speech (' + $('voice').value + ')…');
+    const s = performance.now();
+    const res = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: $('text').value.trim() || 'Hello.', voice: $('voice').value, rate: 1 }) });
+    if (!res.ok) { let m = res.status + ''; try { m += ' ' + (await res.json()).error; } catch (e) { /* ignore */ } throw new Error('the proxy said ' + m); }
+    const blob = await res.blob();
+    log('✓ received ' + Math.round(blob.size / 1024) + ' KB of audio in ' + ((performance.now() - s) / 1000).toFixed(1) + 's');
     const a = new Audio(URL.createObjectURL(blob));
     a.onended = () => log('✓ playback finished');
     a.onerror = () => log('✗ the browser could not play the audio');
