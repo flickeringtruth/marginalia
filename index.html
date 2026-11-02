@@ -129,6 +129,16 @@ body.dragging .drop-hint{display:flex}
 .speed-actions button{min-width:48px;height:48px;border-radius:24px;background:var(--card);font-size:14px}
 .speed-actions #speedPlay{min-width:64px;background:var(--accent);color:#fff;font-size:18px}
 .speed-hint{text-align:center;color:var(--muted);font-size:12px;margin:6px 0 0}
+#autoScrollControls{position:absolute;right:calc(var(--sar) + 14px);bottom:calc(var(--sab) + 92px);z-index:30;width:min(320px,calc(100% - 28px));padding:12px 14px;border:1px solid var(--line);border-radius:16px;background:var(--chrome);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);box-shadow:0 6px 24px rgba(0,0,0,.18)}
+.auto-scroll-top{display:flex;align-items:center;gap:8px}
+.auto-scroll-top b{flex:1;font-size:14px}
+.auto-scroll-top button{min-width:40px;height:40px;border-radius:20px;background:var(--card);font-size:16px}
+.auto-scroll-top #autoScrollToggle{background:var(--accent);color:#fff}
+.auto-scroll-rate{display:flex;align-items:center;gap:8px;margin-top:8px}
+.auto-scroll-rate button{width:36px;height:36px;border-radius:18px;background:var(--card);font-size:17px}
+.auto-scroll-rate input{flex:1;min-width:0}
+.auto-scroll-rate output{width:62px;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.auto-scroll-hint{margin:6px 0 0;text-align:center;color:var(--muted);font-size:11px}
 #viewport{position:absolute;top:var(--top-chrome-height);bottom:var(--bottom-chrome-height);left:var(--sal);right:var(--sar);overflow:hidden}
 #scroller{position:absolute;inset:0;overflow:hidden}
 body.mode-scroll #viewport,body:not(.mode-scroll) #scroller{display:none}
@@ -627,6 +637,11 @@ body.is-pdf #dictFloat{display:none!important}
       <div class="speed-rate"><button id="speedSlow" aria-label="Slower">−</button><input id="speedWpm" type="range" min="100" max="1000" step="25" aria-label="Speed in words per minute"><output id="speedRateLabel"></output><button id="speedFast" aria-label="Faster">+</button></div>
       <p class="speed-hint">Space: play or pause · ← / →: previous or next word · Esc: exit</p>
     </footer>
+  </div>
+  <div id="autoScrollControls" class="hidden" role="group" aria-label="Auto scroll controls">
+    <div class="auto-scroll-top"><b>Auto scroll</b><button id="autoScrollToggle" aria-label="Pause auto scroll" title="Pause">Ⅱ</button><button id="autoScrollStop" aria-label="Stop auto scroll" title="Stop">×</button></div>
+    <div class="auto-scroll-rate"><button id="autoScrollSlower" aria-label="Slower">−</button><input id="autoScrollSpeed" type="range" min="10" max="240" step="5" aria-label="Scroll speed"><output id="autoScrollSpeedLabel"></output><button id="autoScrollFaster" aria-label="Faster">+</button></div>
+    <p class="auto-scroll-hint">Drag the right edge up to speed up or down to slow down.</p>
   </div>
 </section>
 
@@ -2548,6 +2563,7 @@ function velocity(st, axis) {
 function onStageDown(e) {
   if (!App.r || Sheets.current) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (AutoScroll.active && e.clientX >= innerWidth - 44) { e.preventDefault(); AutoScroll.beginGesture(e); return; }
   if (G.st) { clearTimeout(G.st.lp); if (G.st.mode === 'swipe') App.r.snap && App.r.snap(); G.st.mode = 'none'; return; } // second finger cancels
   if (App.r.engine) App.r.engine.stop();
   TTS.markUser();
@@ -2563,6 +2579,7 @@ function onLongPress() {
   else st.mode = 'none';
 }
 function onStageMove(e) {
+  if (AutoScroll.gesture) { AutoScroll.moveGesture(e); return; }
   const st = G.st; if (!st || e.pointerId !== st.id) return;
   st.x = e.clientX; st.y = e.clientY;
   const now = performance.now(); st.samples.push([now, st.x, st.y]);
@@ -2587,6 +2604,7 @@ function onStageMove(e) {
   else if (st.mode === 'select') scheduleExtend(st.x, st.y);
 }
 function onStageUp(e, cancelled) {
+  if (AutoScroll.endGesture(e)) return;
   const st = G.st; if (!st || e.pointerId !== st.id) return;
   G.st = null; clearTimeout(st.lp);
   try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
@@ -3828,7 +3846,10 @@ function openMore(where) {
   const isPdf = inReader && App.book.type === 'pdf';
   let html = '';
   if (inReader && !isPdf) html += menuItem('hl', ICO.hl, 'Highlights', HL.list.length + (HL.list.length === 1 ? ' highlight' : ' highlights') + ' in this book');
-  if (inReader) html += menuItem('speed', '<svg viewBox="0 0 24 24"><path d="M4 12h16M13 5l7 7-7 7"/><path d="M4 7h5M4 17h5"/></svg>', 'Speed read', 'Show one word at a time');
+  if (inReader) {
+    html += menuItem('autoscroll', '<svg viewBox="0 0 24 24"><path d="M12 3v18M7 8l5-5 5 5M7 16l5 5 5-5"/></svg>', 'Auto scroll', 'Hands-free continuous scrolling');
+    html += menuItem('speed', '<svg viewBox="0 0 24 24"><path d="M4 12h16M13 5l7 7-7 7"/><path d="M4 7h5M4 17h5"/></svg>', 'Focus-word speed read', 'Show one word at a time');
+  }
   html += menuItem('ai', ICO.ai, 'AI Assistant', inReader ? 'Ask about the page you’re reading' : 'Ask questions about books and texts');
   if (isPdf) html += menuItem('convcur', ICO.conv, 'Convert this PDF to EPUB', 'Reflowable text with themes, highlights and read-aloud');
   if (!inReader) html += menuItem('convpick', ICO.conv, 'Convert a PDF to EPUB', 'Pick a PDF from your device');
@@ -3843,6 +3864,7 @@ function bindMore() {
     const k = b.dataset.mi; closeSheet();
     await sleep(60);
     if (k === 'hl') openDrawer('hl');
+    else if (k === 'autoscroll') await AutoScroll.toggleCurrent();
     else if (k === 'speed') SpeedReader.start();
     else if (k === 'ai') AI.open();
     else if (k === 'convcur') PdfConvert.ask(null);
@@ -4289,6 +4311,94 @@ function locForPercent(p) {
   return { ch, off: Math.round(target), frac: L[ch] ? target / L[ch] : 0 };
 }
 function chapterTitleFor(ch) { const b = App.book; if (!b) return ''; const c = b.chapters[ch]; return c ? c.title : ''; }
+const AutoScroll = {
+  active: false, running: false, hiddenPaused: false, raf: 0, lastFrame: 0, gesture: null,
+  speed: clamp(LS.get('reader.autoscroll.speed', 45), 10, 240),
+  key() { return App.book ? 'reader.autoscroll.' + App.book.id : ''; },
+  supportsReader() { return App.r && App.r.engine && typeof App.r.engine.by === 'function'; },
+  async toggleCurrent() {
+    if (S.layout !== 'scroll') await setSetting('layout', 'scroll');
+    if (this.active) this.toggle(); else this.start();
+  },
+  sync() {
+    $('#autoScrollControls').classList.toggle('hidden', !this.active);
+    $('#autoScrollToggle').textContent = this.running ? 'Ⅱ' : '▶';
+    $('#autoScrollToggle').setAttribute('aria-label', this.running ? 'Pause auto scroll' : 'Resume auto scroll');
+    $('#autoScrollToggle').title = this.running ? 'Pause' : 'Resume';
+    $('#autoScrollSpeed').value = String(this.speed);
+    $('#autoScrollSpeed').style.setProperty('--p', ((this.speed - 10) / 230) * 100 + '%');
+    $('#autoScrollSpeedLabel').textContent = Math.round(this.speed) + ' px/s';
+  },
+  start() {
+    if (!this.supportsReader()) { toast('Auto scroll requires continuous scroll layout.'); return; }
+    this.active = true; this.running = true;
+    LS.set(this.key(), true); LS.set('reader.autoscroll.speed', this.speed);
+    this.lastFrame = 0; this.sync(); this.raf = requestAnimationFrame(t => this.frame(t));
+  },
+  stop(clearSaved = true) {
+    this.running = false; this.active = false; this.gesture = null;
+    cancelAnimationFrame(this.raf); this.raf = 0; this.lastFrame = 0;
+    if (clearSaved && this.key()) LS.set(this.key(), false);
+    this.sync();
+  },
+  toggle() {
+    if (!this.active) { this.start(); return; }
+    if (this.running) { this.running = false; this.hiddenPaused = false; cancelAnimationFrame(this.raf); this.raf = 0; this.lastFrame = 0; }
+    else { this.running = true; this.hiddenPaused = false; this.lastFrame = 0; this.raf = requestAnimationFrame(t => this.frame(t)); }
+    this.sync();
+  },
+  setSpeed(value) {
+    this.speed = clamp(Math.round(value / 5) * 5, 10, 240);
+    LS.set('reader.autoscroll.speed', this.speed); this.sync();
+  },
+  frame(time) {
+    if (!this.active || !this.running || !this.supportsReader()) return;
+    if (this.lastFrame) {
+      const dt = Math.min(50, time - this.lastFrame);
+      const moved = App.r.engine.by(this.speed * dt / 1000);
+      if (moved === 0 && App.r.engine.top >= App.r.engine.max() - 1) {
+        const finalSection = App.book.type === 'pdf'
+          ? App.r.getLoc().ch >= App.book.chapters.length - 1
+          : App.r.last >= App.book.chapters.length - 1;
+        if (finalSection) { this.running = false; this.raf = 0; this.lastFrame = 0; this.sync(); return; }
+      }
+    }
+    this.lastFrame = time;
+    this.raf = requestAnimationFrame(t => this.frame(t));
+  },
+  restore() {
+    this.active = !!(this.key() && LS.get(this.key(), false) && this.supportsReader());
+    this.running = this.active;
+    this.lastFrame = 0; this.hiddenPaused = false; this.sync();
+    if (this.running) this.raf = requestAnimationFrame(t => this.frame(t));
+  },
+  beginGesture(event) {
+    this.gesture = { pointerId: event.pointerId };
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch (e) { /* pointer capture is optional */ }
+    this.moveGesture(event);
+  },
+  moveGesture(event) {
+    if (!this.gesture || this.gesture.pointerId !== event.pointerId) return;
+    const height = Math.max(1, innerHeight);
+    this.setSpeed(10 + (1 - clamp(event.clientY / height, 0, 1)) * 230);
+  },
+  endGesture(event) {
+    if (!this.gesture || this.gesture.pointerId !== event.pointerId) return false;
+    this.gesture = null;
+    return true;
+  },
+  bind() {
+    $('#autoScrollToggle').addEventListener('click', () => this.toggle());
+    $('#autoScrollStop').addEventListener('click', () => this.stop());
+    $('#autoScrollSlower').addEventListener('click', () => this.setSpeed(this.speed - 10));
+    $('#autoScrollFaster').addEventListener('click', () => this.setSpeed(this.speed + 10));
+    $('#autoScrollSpeed').addEventListener('input', e => this.setSpeed(+e.target.value));
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.running) { this.running = false; this.hiddenPaused = true; cancelAnimationFrame(this.raf); this.raf = 0; this.lastFrame = 0; this.sync(); }
+      else if (!document.hidden && this.active && this.hiddenPaused) { this.running = true; this.hiddenPaused = false; this.raf = requestAnimationFrame(t => this.frame(t)); this.sync(); }
+    });
+  }
+};
 const SpeedReader = {
   active: false, playing: false, words: [], index: 0, chapter: 0, timer: 0, generation: 0,
   wpm: clamp(LS.get('reader.speed.wpm', 300), 100, 1000), sourceText: '', lastLoc: null,
@@ -4345,6 +4455,7 @@ const SpeedReader = {
     const generation = ++this.generation;
     let loc;
     try { loc = App.r.getLoc(); } catch (e) { toast('Could not read the current position.'); return; }
+    AutoScroll.stop(false);
     if (TTS.state === 'playing' || TTS.state === 'loading') TTS.pause();
     this.pause();
     this.active = true; this.lastLoc = loc;
@@ -4542,7 +4653,7 @@ async function createRenderer(loc) {
   if (document.fonts && document.fonts.ready) { try { await Promise.race([document.fonts.ready, sleep(800)]); } catch (e) { /* ignore */ } }
   await nextFrame();
   await r.init(App.book, Object.assign({ ch: 0, off: -1, frac: 0 }, loc || {}));
-  r.ready = true; updateProgressUI(); TTS.onRenderer(); TTS.prefetchView();
+  r.ready = true; updateProgressUI(); TTS.onRenderer(); TTS.prefetchView(); AutoScroll.restore();
 }
 const relayoutSoon = debounce(async () => { if (App.r && App.screen === 'reader') { clearSelection(); await App.r.relayout(); updateProgressUI(); TTS.renderHL(); } }, 160);
 
@@ -4559,7 +4670,7 @@ async function openBook(id, preParsed) {
       book.lengths = meta.lengths; book.total = meta.lengths.reduce((a, b) => a + b, 0);
     }
     meta.opened = Date.now(); DB.putMeta(meta).catch(() => {});
-    if (App.book && App.book !== book) { TTS.shutdown(); App.book.destroy(); }
+    if (App.book && App.book !== book) { TTS.shutdown(); AutoScroll.stop(false); App.book.destroy(); }
     App.book = book; HL.load(); TTS.onBookOpen();
     LS.set('reader.last', id); LS.set('reader.wasOpen', true);
     $('#bookTitle').textContent = meta.title; $('#drTitle').textContent = meta.title; $('#drAuthor').textContent = meta.author || '';
@@ -4573,7 +4684,7 @@ async function openBook(id, preParsed) {
   } finally { loading(false); }
 }
 function closeBook() {
-  savePos.flush(); TTS.shutdown(); clearSelection(); closeSheet();
+  savePos.flush(); TTS.shutdown(); AutoScroll.stop(false); clearSelection(); closeSheet();
   if (App.r) { App.r.destroy(); App.r = null; }
   if (App.book) { App.book.destroy(); App.book = null; }
   LS.set('reader.wasOpen', false); document.title = 'Books';
@@ -4769,7 +4880,7 @@ function buildSettings() {
     <label class="row"><span>Animation speed</span><input type="range" data-set="uiSpeed" min="150" max="700" step="10" aria-label="Animation speed"><output data-out="uiSpeed"></output></label>
   </div>
   <div class="grp"><h3>Keyboard</h3><div class="kbd-list">
-    <kbd>← →</kbd><span>Previous / next page</span><kbd>Space</kbd><span>Next page (Shift: previous)</span><kbd>↑ ↓</kbd><span>Scroll a little (scroll mode)</span>
+    <kbd>← →</kbd><span>Previous / next page</span><kbd>Space</kbd><span>Next page (Shift: previous)</span><kbd>↑ ↓</kbd><span>Scroll a little (scroll mode)</span><kbd>Shift+A</kbd><span>Toggle auto scroll (continuous mode)</span>
     <kbd>+ −</kbd><span>Text size</span><kbd>T</kbd><span>Contents</span><kbd>H</kbd><span>Highlights</span><kbd>S</kbd><span>Appearance</span>
     <kbd>D</kbd><span>Dictionary / look up selection</span><kbd>I</kbd><span>AI assistant</span><kbd>P</kbd><span>Read aloud: play / pause</span><kbd>[ ]</kbd><span>Read aloud: back / forward 5 s</span><kbd>A</kbd><span>Audio settings</span><kbd>M</kbd><span>Show / hide controls</span><kbd>L</kbd><span>Library</span><kbd>Esc</kbd><span>Close / clear selection</span></div></div>
   <button class="wide-btn" data-act="reset">Reset appearance to defaults</button>`;
@@ -4863,6 +4974,7 @@ function bindKeys() {
     if (e.key === 'Escape') { if (Sheets.current) closeSheet(); else if (Sel.active || Sel.hlId) clearSelection(); else if (App.chrome) setChrome(false); return; }
     if (Sheets.current) return;
     if (App.screen !== 'reader' || !App.r) { if (App.screen === 'library' && (e.key === 'o' || e.key === 'i')) { $('#fileInput').click(); e.preventDefault(); } return; }
+    if (e.shiftKey && (e.key === 'a' || e.key === 'A')) { AutoScroll.toggleCurrent(); e.preventDefault(); return; }
     if ((e.key === ' ' || e.key === 'Enter') && t && t.closest && t.closest('button')) return;
     const k = e.key; let handled = true; if (/Arrow|Page|Home| /.test(k)) TTS.markUser();
     if (k === 'ArrowRight' || k === 'PageDown' || (k === ' ' && !e.shiftKey)) App.r.next();
@@ -5046,7 +5158,7 @@ const Greeter = (() => {
 async function init() {
   applyTheme(); applyTypography(); applyBodyClasses();
   buildSettings(); syncSettingsUI();
-  bindUI(); bindSheets(); bindSettings(); bindStage(); bindHandles(); bindMenu(); bindKeys(); bindAudio(); Dict.bind(); AI.bind(); SpeedReader.bind(); bindMore();
+  bindUI(); bindSheets(); bindSettings(); bindStage(); bindHandles(); bindMenu(); bindKeys(); bindAudio(); Dict.bind(); AI.bind(); SpeedReader.bind(); AutoScroll.bind(); bindMore();
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* ignore */ }
   Greeter.start();
   await renderLibrary();
@@ -5055,7 +5167,7 @@ async function init() {
 }
 window.addEventListener('unhandledrejection', e => { console.error(e.reason); if (e.reason instanceof UserError) toast(e.reason.message, 3000); });
 // Expose a tiny debug/test handle
-window.__reader = { App, S, HL, lookupWord, importFile, openBook, setSetting, Sel, CONFIG, TTS, A, setAudio, AudioUI, Dict, AI, PdfConvert, Ambient, gradientTheme, setGrad, globalPages };
+window.__reader = { App, S, HL, lookupWord, importFile, openBook, setSetting, Sel, CONFIG, TTS, A, setAudio, AudioUI, Dict, AI, SpeedReader, AutoScroll, PdfConvert, Ambient, gradientTheme, setGrad, globalPages };
 init();
 })();
 </script>
