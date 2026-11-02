@@ -480,13 +480,28 @@ body.is-pdf #dictFloat{display:none!important}
 .menu-item small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
 .menu-item:active{background:var(--card)}
 /* Dictionary tabs */
-.dict-tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.dict-tab-bar{display:flex;align-items:center;gap:6px;padding:2px 0 10px}
+.dict-tabs{display:flex;align-items:center;gap:6px;overflow-x:auto;min-width:0;flex:1;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .dict-tabs::-webkit-scrollbar{display:none}
-.dict-tab{display:flex;align-items:center;flex:none;max-width:180px;height:36px;border-radius:18px;background:var(--card);font-size:14px;padding-left:14px}
+.dict-tab{display:flex;align-items:center;flex:none;max-width:190px;height:38px;border-radius:19px;background:var(--card);font-size:14px;padding-left:12px}
 .dict-tab.on{background:var(--accent);color:#fff}
-.dict-tab span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dict-tab .x{width:34px;height:36px;display:flex;align-items:center;justify-content:center;opacity:.75;font-size:16px}
-.dict-tab:not(:has(.x)){padding-right:14px}
+.dict-tab-main{display:flex;align-items:center;gap:5px;min-width:0;height:38px;text-align:left}
+.dict-tab-main span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dict-tab-main svg,.dict-tab-lock svg{width:13px;height:13px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.dict-tab-lock,.dict-tab .x{width:30px;height:38px;display:flex;align-items:center;justify-content:center;opacity:.75;font-size:16px;flex:none}
+.dict-tab-lock[aria-pressed="true"]{opacity:1}
+.dict-tab:not(:has(.x)){padding-right:0}
+.dict-tab-actions{display:flex;align-items:center;gap:2px;flex:none}
+.dict-tab-actions button{width:36px;height:38px;border-radius:12px;background:var(--card);font-size:20px;line-height:1}
+.dict-tab-actions button[aria-pressed="true"]{color:var(--accent)}
+.dict-organizer{padding:8px 0 12px;border-top:.5px solid var(--line);border-bottom:.5px solid var(--line);margin-bottom:12px}
+.dict-organizer h4{margin:0 0 6px;font-size:13px;color:var(--muted)}
+.dict-organizer-row{display:flex;align-items:center;gap:6px;min-height:44px;border-top:.5px solid var(--line)}
+.dict-organizer-row>button:first-child{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dict-organizer-row>button:not(:first-child){width:38px;height:38px;border-radius:10px;background:var(--card);flex:none}
+.dict-organizer-row button:disabled{opacity:.35}
+.dict-organizer-row .dict-organizer-close{color:var(--danger)}
+.dict-ask-ai{margin:8px 0 12px}
 .dict-nav{display:flex;gap:8px;align-items:center;margin-bottom:6px}
 .dict-nav input{flex:1;min-width:0;height:44px;border-radius:12px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:16px;padding:0 12px}
 .dict-back{min-width:44px;height:44px;border-radius:12px;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:20px}
@@ -2482,7 +2497,44 @@ async function fetchEtymology(word, known) {
 
 /* ---------- Tabbed dictionary: tap any word in a definition to open it in a new tab; search + Back per tab ---------- */
 const Dict = {
-  tabs: [], active: 0, audio: null, pronunciationUtterance: null,
+  tabs: [], active: 0, audio: null, pronunciationUtterance: null, organizing: false, initialized: false,
+  ensureTabs() {
+    if (this.initialized) return;
+    this.initialized = true;
+    const saved = LS.get('reader.dict.tabs', null);
+    if (Array.isArray(saved) && saved.length) {
+      this.tabs = saved.slice(0, 8).map(tab => {
+        const hist = tab && Array.isArray(tab.hist) ? tab.hist.filter(word => typeof word === 'string' && word.length <= 200).slice(-50) : [];
+        return { hist, i: tab && Number.isInteger(tab.i) && tab.i >= 0 && tab.i < hist.length ? tab.i : hist.length - 1, locked: !!(tab && tab.locked) };
+      });
+      const active = LS.get('reader.dict.active', 0);
+      this.active = Number.isInteger(active) ? clamp(active, 0, this.tabs.length - 1) : 0;
+    }
+    if (!this.tabs.length) this.tabs = [{ hist: [], i: -1, locked: false }];
+  },
+  persist() {
+    LS.set('reader.dict.tabs', this.tabs);
+    LS.set('reader.dict.active', this.active);
+  },
+  addTab(word, render = true) {
+    this.ensureTabs();
+    if (this.tabs.length >= 8) { toast('Close an unlocked dictionary tab before adding another.'); return false; }
+    const w = word ? normalizeWord(word) : '';
+    this.tabs.push({ hist: w ? [w] : [], i: w ? 0 : -1, locked: false });
+    this.active = this.tabs.length - 1;
+    this.persist();
+    if (render) this.render(!w);
+    return true;
+  },
+  move(k, direction) {
+    const to = k + direction;
+    if (k < 0 || k >= this.tabs.length || to < 0 || to >= this.tabs.length) return;
+    const selected = this.tabs[this.active], moved = this.tabs.splice(k, 1)[0];
+    this.tabs.splice(to, 0, moved);
+    this.active = this.tabs.indexOf(selected);
+    this.persist();
+    this.render();
+  },
   playPronunciation(word, sources) {
     if (this.audio) { this.audio.pause(); this.audio = null; }
     const urls = (Array.isArray(sources) ? sources : [sources]).map(pronunciationAudioUrl).filter((url, i, all) => url && all.indexOf(url) === i);
@@ -2522,24 +2574,36 @@ const Dict = {
   },
   open(word, newTab) {
     const w = word ? normalizeWord(word) : '';
-    if (!this.tabs.length || newTab !== false && w) {
-      if (w || !this.tabs.length) { this.tabs.push({ hist: w ? [w] : [], i: w ? 0 : -1 }); this.active = this.tabs.length - 1; }
-      if (this.tabs.length > 8) { this.tabs.shift(); this.active = this.tabs.length - 1; }
-    }
+    this.ensureTabs();
+    if (newTab !== false && w && !this.addTab(w, false)) return;
     if (Sheets.current !== 'dictSheet') openSheet('dictSheet');
-    this.render(!w);
+    this.render(!this.cur());
   },
   cur() { const t = this.tabs[this.active]; return t && t.i >= 0 ? t.hist[t.i] : ''; },
   go(word) { // navigate inside the current tab (browser-like history)
     const w = normalizeWord(word); if (!w) return;
-    const t = this.tabs[this.active]; t.hist = t.hist.slice(0, t.i + 1); t.hist.push(w); t.i = t.hist.length - 1; this.render();
+    const t = this.tabs[this.active]; t.hist = t.hist.slice(0, t.i + 1); t.hist.push(w); t.i = t.hist.length - 1; this.persist(); this.render();
   },
-  back() { const t = this.tabs[this.active]; if (t && t.i > 0) { t.i--; this.render(); } },
-  close(k) { if (this.tabs.length <= 1) return; this.tabs.splice(k, 1); if (this.active >= this.tabs.length) this.active = this.tabs.length - 1; else if (k < this.active) this.active--; this.render(); },
+  back() { const t = this.tabs[this.active]; if (t && t.i > 0) { t.i--; this.persist(); this.render(); } },
+  close(k) {
+    const tab = this.tabs[k];
+    if (!tab || tab.locked) return;
+    const selected = this.tabs[this.active];
+    this.tabs.splice(k, 1);
+    if (!this.tabs.length) { this.tabs.push({ hist: [], i: -1, locked: false }); this.active = 0; }
+    else this.active = selected === tab ? Math.min(k, this.tabs.length - 1) : this.tabs.indexOf(selected);
+    this.persist();
+    this.render(!this.cur());
+  },
   render(focusSearch) {
     const body = $('#dictBody'), t = this.tabs[this.active], w = this.cur();
-    const tabs = this.tabs.map((tb, k) => `<div class="dict-tab${k === this.active ? ' on' : ''}" data-tab="${k}"><span>${esc(tb.i >= 0 ? tb.hist[tb.i] : 'Search')}</span>${this.tabs.length > 1 ? `<button class="x" data-x="${k}" aria-label="Close tab">×</button>` : ''}</div>`).join('');
-    body.innerHTML = `<div class="dict-tabs">${tabs}</div>
+    const tabs = this.tabs.map((tb, k) => `<div class="dict-tab${k === this.active ? ' on' : ''}">
+        <button class="dict-tab-main" data-tab="${k}" aria-label="Open ${esc(tb.i >= 0 ? tb.hist[tb.i] : 'Search tab')}"><span>${esc(tb.i >= 0 ? tb.hist[tb.i] : 'New tab')}</span></button>
+        <button class="dict-tab-lock" data-lock="${k}" aria-label="${tb.locked ? 'Unlock' : 'Lock'} tab" aria-pressed="${!!tb.locked}" title="${tb.locked ? 'Unlock tab' : 'Lock tab'}"><svg viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg></button>
+        ${tb.locked ? '' : `<button class="x" data-x="${k}" aria-label="Close tab">×</button>`}
+      </div>`).join('');
+    const organizer = this.organizing ? `<div class="dict-organizer" role="region" aria-label="Organize dictionary tabs"><h4>Organize tabs</h4>${this.tabs.map((tb, k) => `<div class="dict-organizer-row"><button data-tab="${k}">${esc(tb.i >= 0 ? tb.hist[tb.i] : 'New tab')}${tb.locked ? ' · Locked' : ''}</button><button data-move="${k}" data-dir="-1" aria-label="Move tab left" ${k === 0 ? 'disabled' : ''}>‹</button><button data-move="${k}" data-dir="1" aria-label="Move tab right" ${k === this.tabs.length - 1 ? 'disabled' : ''}>›</button><button class="dict-organizer-close" data-x="${k}" aria-label="Close tab" ${tb.locked ? 'disabled title="Unlock this tab to close it"' : ''}>×</button></div>`).join('')}</div>` : '';
+    body.innerHTML = `<div class="dict-tab-bar"><div class="dict-tabs">${tabs}</div><div class="dict-tab-actions"><button id="dictAddTab" aria-label="Add tab" title="Add tab">+</button><button id="dictOrganize" aria-label="Organize tabs" title="Organize tabs" aria-pressed="${this.organizing}">⋯</button></div></div>${organizer}
       <form class="dict-nav" id="dictForm"><button type="button" class="dict-back" id="dictBack" aria-label="Back" ${t && t.i > 0 ? '' : 'disabled'}>‹</button><input id="dictSearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" placeholder="Look up a word" value="${esc(w)}"></form>
       <div id="dictContent"></div>`;
     if (focusSearch) setTimeout(() => { const i = $('#dictSearch'); if (i) i.focus(); }, 60);
@@ -2557,6 +2621,7 @@ const Dict = {
       let html = `<h3 class="dict-word">${esc(r.word)}</h3>`;
       if (r.via) html += `<p class="hint" style="margin:2px 0 4px">No entry for “${esc(r.via)}” — showing “${esc(r.word)}”.</p>`;
       html += `<div class="dict-pron"><button class="icon-btn" id="dictAudio" aria-label="Play pronunciation"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button><span>${esc(r.phonetic || '')}</span></div>`;
+      html += `<button class="wide-btn primary dict-ask-ai" id="dictAskAI">Ask AI to elaborate</button>`;
       for (const m of r.meanings) {
         html += `<div class="dict-pos">${esc(m.pos || 'definition')}${m.lang ? `<small>${esc(m.lang)}</small>` : ''}</div><ol class="dict-defs">` +
           m.defs.map(d => `<li>${lk(d.d)}${d.ex ? `<span class="dict-ex">“${lk(d.ex)}”</span>` : ''}</li>`).join('') + '</ol>';
@@ -2566,6 +2631,10 @@ const Dict = {
       html += `<div class="dict-src">Source: ${esc(r.source)}</div>${links(r.word)}`;
       box.innerHTML = html;
       const ab = $('#dictAudio'); if (ab) ab.addEventListener('click', () => this.playPronunciation(r.word, r.audios || r.audio));
+      $('#dictAskAI').addEventListener('click', () => {
+        const context = [`Dictionary entry: ${r.word}`, r.phonetic ? `Pronunciation: ${r.phonetic}` : '', ...r.meanings.flatMap(m => m.defs.map(d => `${m.pos || 'Definition'}: ${d.d}${d.ex ? ` Example: ${d.ex}` : ''}`))].filter(Boolean).join('\n').slice(0, 3000);
+        AI.open(`Please elaborate on the dictionary entry for “${r.word}”. Explain the meaning and nuance in clear language, and give a few useful examples.`, context);
+      });
       $('#dictMoreBtn').addEventListener('click', async e => {
         const btn = e.currentTarget, more = $('#dictMore'), open = !btn.classList.contains('open');
         btn.classList.toggle('open', open); more.classList.toggle('open', open); btn.setAttribute('aria-expanded', open);
@@ -2586,12 +2655,16 @@ const Dict = {
   bind() {
     const body = $('#dictBody');
     body.addEventListener('click', e => {
-      const x = e.target.closest('[data-x]'); if (x) { e.stopPropagation(); this.close(+x.dataset.x); return; }
-      const tb = e.target.closest('.dict-tab'); if (tb) { this.active = +tb.dataset.tab; this.render(); return; }
+      const x = e.target.closest('[data-x]'); if (x) { e.stopPropagation(); if (!x.disabled) this.close(+x.dataset.x); return; }
+      const lock = e.target.closest('[data-lock]'); if (lock) { this.tabs[+lock.dataset.lock].locked = !this.tabs[+lock.dataset.lock].locked; this.persist(); this.render(); return; }
+      const move = e.target.closest('[data-move]'); if (move) { this.move(+move.dataset.move, +move.dataset.dir); return; }
+      if (e.target.closest('#dictAddTab')) { this.addTab(); return; }
+      if (e.target.closest('#dictOrganize')) { this.organizing = !this.organizing; this.render(); return; }
+      const tb = e.target.closest('[data-tab]'); if (tb) { this.active = +tb.dataset.tab; this.persist(); this.render(); return; }
       if (e.target.closest('#dictBack')) { this.back(); return; }
       const dw = e.target.closest('.dw'); if (dw) { this.open(dw.dataset.w, true); return; }
     });
-    body.addEventListener('submit', e => { e.preventDefault(); const v = $('#dictSearch').value; if (normalizeWord(v)) { $('#dictSearch').blur(); if (!this.cur()) { const t = this.tabs[this.active]; t.hist = [normalizeWord(v)]; t.i = 0; this.render(); } else this.go(v); } });
+    body.addEventListener('submit', e => { e.preventDefault(); const v = $('#dictSearch').value; if (normalizeWord(v)) { $('#dictSearch').blur(); if (!this.cur()) { const t = this.tabs[this.active]; t.hist = [normalizeWord(v)]; t.i = 0; this.persist(); this.render(); } else this.go(v); } });
   }
 };
 function openDictionary(raw) { Dict.open(raw, true); }
