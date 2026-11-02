@@ -3762,8 +3762,9 @@ const AI = {
   endpointCandidates(prompt) {
     const encoded = encodeURIComponent(prompt);
     return [
-      { url: 'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct', mode: 'hf' },
-      { url: `https://text.pollinations.ai/${encoded}?model=qwen-coder&json=false`, mode: 'pollinations' }
+      { url: `https://text.pollinations.ai/${encoded}?model=openai&json=false`, mode: 'pollinations', label: 'Pollinations (openai)' },
+      { url: `https://text.pollinations.ai/${encoded}?model=qwen-coder&json=false`, mode: 'pollinations', label: 'Pollinations (qwen-coder)' },
+      { url: 'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct', mode: 'hf', label: 'Hugging Face' }
     ];
   },
   buildPrompt(rawText) {
@@ -3817,7 +3818,7 @@ const AI = {
     try { const info = App.r.info(), out = []; for (let p = info.page; p <= (info.pageTo || info.page); p++) { const tc = await (await b.pdf.getPage(p)).getTextContent(); out.push(tc.items.map(i => i.str).join(' ')); } this.pdfText = cleanText(out.join('\n')); } catch (e) { /* ignore */ }
   },
   async publicCompletion(prompt) {
-    let lastErr = null;
+    const failures = [];
     for (const c of this.endpointCandidates(prompt)) {
       try {
         if (c.mode === 'hf') {
@@ -3826,8 +3827,11 @@ const AI = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 600, temperature: 0.4, top_p: 0.95 } })
           }, 60000);
-          if (res.status === 401 || res.status === 403) { lastErr = new Error('HF unauthorized'); continue; }
-          if (!res.ok) { lastErr = new Error('HTTP ' + res.status); continue; }
+          if (!res.ok) {
+            const detail = (await res.text()).slice(0, 180).trim();
+            failures.push(`${c.label}: HTTP ${res.status}${detail ? ' (' + detail + ')' : ''}`);
+            continue;
+          }
           const body = await res.text();
           if (!body) throw new Error('Empty response from Hugging Face');
           try {
@@ -3838,12 +3842,17 @@ const AI = {
           return String(body).replace(/<think>[\s\S]*?<\/think>/g, '').trim();
         }
         const res = await fetchWithTimeout(c.url, { headers: { Accept: 'text/plain' } }, 60000);
-        if (!res.ok) { lastErr = new Error('HTTP ' + res.status); continue; }
+        if (!res.ok) {
+          const detail = (await res.text()).slice(0, 180).trim();
+          failures.push(`${c.label}: HTTP ${res.status}${detail ? ' (' + detail + ')' : ''}`);
+          continue;
+        }
         const text = await res.text();
         if (text) return String(text).trim();
-      } catch (err) { lastErr = err; }
+        failures.push(`${c.label}: empty response`);
+      } catch (err) { failures.push(`${c.label}: ${err.message || 'request failed'}`); }
     }
-    throw lastErr || new Error('No public AI endpoint available');
+    throw new Error(failures.length ? failures.join(' · ') : 'No public AI endpoint available');
   },
   async send(text) {
     text = cleanText(text); if (!text || this.busy) return;
