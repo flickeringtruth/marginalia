@@ -427,10 +427,26 @@ body.immersive.audio-on #viewport{bottom:calc(var(--sab) + 62px)}
 body.audio-on #runFoot{opacity:0}
 #audioBtn.on{color:var(--accent)}
 #audioBar{position:absolute;inset:0;z-index:22;pointer-events:none}
+.ab-popup-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.58);opacity:0;pointer-events:none;transition:opacity .22s var(--ease)}
 .ab-full{position:absolute;left:8px;right:8px;margin:0 auto;max-width:560px;bottom:calc(var(--bottom-chrome-height) + 8px);padding:6px 8px 4px;border-radius:18px;
   background:var(--chrome);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border:.5px solid var(--line);
   box-shadow:0 10px 34px rgba(0,0,0,.16);opacity:0;transform:translateY(10px);pointer-events:none;transition:opacity .28s var(--ease),transform .28s var(--ease)}
 body.chrome-on .ab-full{opacity:1;transform:none;pointer-events:auto}
+body.audio-popup-open .ab-popup-backdrop{opacity:1;pointer-events:auto}
+body.audio-popup-open .ab-full{left:50%;right:auto;top:50%;bottom:auto;width:min(430px,calc(100% - 32px));max-height:calc(100% - 40px);overflow-y:auto;padding:14px 14px calc(14px + var(--sab));border-radius:24px;
+  transform:translate(-50%,-50%);opacity:1;pointer-events:auto;z-index:1}
+body.audio-popup-open #abMini{opacity:0;pointer-events:none}
+body.audio-popup-open #abSpeedDown,body.audio-popup-open #abRate,body.audio-popup-open #abSpeedUp,body.audio-popup-open #abSettings{display:none}
+.ab-popup-snippet,.ab-popup-quick,.ab-popup-close{display:none}
+body.audio-popup-open .ab-popup-snippet{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;min-height:74px;margin:10px 2px 14px;padding:12px 14px;border-radius:14px;background:var(--card);
+  text-align:center;font-size:15px;font-weight:600;line-height:1.35;color:var(--fg)}
+body.audio-popup-open .ab-popup-quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}
+.ab-popup-quick button{min-width:0;min-height:52px;padding:6px 4px;border-radius:13px;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.ab-popup-quick b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.ab-popup-quick span{font-size:11px;color:var(--muted)}
+.ab-popup-close{width:40px;height:40px;border-radius:20px;background:var(--card);align-items:center;justify-content:center;flex:none}
+body.audio-popup-open .ab-popup-close{display:flex}
+.ab-popup-close svg{width:18px;height:18px}
 .ab-top{display:flex;align-items:center;gap:2px}
 .ab-title{flex:1;min-width:0;padding-left:8px;line-height:1.2}
 .ab-title b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -670,7 +686,8 @@ body.is-pdf #dictFloat{display:none!important}
 
   <div id="abChip" role="status"><span>The voice is on another page</span><button id="abHere">Read from here</button><button id="abGo">Go to voice</button></div>
   <div id="audioBar" class="hidden" role="region" aria-label="Read aloud player">
-    <div class="ab-full">
+    <div class="ab-popup-backdrop" id="abPopupBackdrop"></div>
+    <div class="ab-full" role="dialog" aria-modal="true" aria-label="Read aloud controls">
       <div class="ab-top">
         <div class="ab-title"><b id="abTitle"></b><span id="abSub"></span></div>
         <button class="ab-mini" id="abSpeedDown" aria-label="Slower" title="Slower">−</button>
@@ -678,7 +695,9 @@ body.is-pdf #dictFloat{display:none!important}
         <button class="ab-mini" id="abSpeedUp" aria-label="Faster" title="Faster">+</button>
         <button class="icon-btn" id="abSettings" aria-label="Audio settings" title="Audio settings"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></button>
         <button class="ab-stop" id="abStop" aria-label="Stop reading aloud" title="Stop"><i></i></button>
+        <button class="ab-popup-close" id="abPopupClose" aria-label="Close player"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
+      <div class="ab-popup-snippet" id="abPopupSnippet" aria-live="polite"></div>
       <div class="ab-prog"><span id="abEl">0:00</span><input type="range" id="abSeek" min="0" max="1000" value="0" aria-label="Listening position in chapter"><span id="abRem">-0:00</span></div>
       <div class="ab-ctrls">
         <button class="icon-btn" id="abPrevP" aria-label="Previous paragraph" title="Previous paragraph"><svg viewBox="0 0 24 24"><path d="M6 5v14"/><path d="M19 6l-9 6 9 6z" fill="currentColor"/></svg></button>
@@ -686,6 +705,11 @@ body.is-pdf #dictFloat{display:none!important}
         <button class="ab-play" id="abPlay" aria-label="Play"></button>
         <button class="icon-btn skip-ico" id="abFwd" aria-label="Forward 5 seconds" title="Forward 5 s (])"><svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M20 3.5v4h-4"/></svg><b>5</b></button>
         <button class="icon-btn" id="abNextP" aria-label="Next paragraph" title="Next paragraph"><svg viewBox="0 0 24 24"><path d="M18 5v14"/><path d="M5 6l9 6-9 6z" fill="currentColor"/></svg></button>
+      </div>
+      <div class="ab-popup-quick">
+        <button id="abPopupSpeed"><b id="abPopupRate">1×</b><span>Speed</span></button>
+        <button id="abPopupVoice"><b id="abPopupVoiceName">Voice</b><span>Voice</span></button>
+        <button id="abPopupSleep"><b id="abPopupSleepValue">Off</b><span>Sleep timer</span></button>
       </div>
     </div>
     <div id="abMini" role="group" aria-label="Read aloud">
@@ -2937,7 +2961,7 @@ const A_DEFAULTS = { voiceURI: '', preset: 'deep', rate: 1, pitch: 0.85, volume:
   engine: 'device',          // 'device' (SpeechSynthesis) | 'voicerss' (online, free key)
   vrssKey: '', vrssVoice: '', ssml: false,
   edgeProxy: '', edgeVoice: 'en-US-AriaNeural',
-  cadence: false,            // storytelling cadence for device voices (speakWithCadence)
+  cadence: false,            // sentence-aware storytelling cadence for Edge and device voices
   ambient: 'off', ambVol: 0.35 };
 let A = Object.assign({}, A_DEFAULTS, LS.get('reader.audio', {}));
 const saveAudioSettings = debounce(() => LS.set('reader.audio', A), 250);
@@ -3207,7 +3231,7 @@ const TTS = {
   },
   trimEdgeSilence(ctx, input) {
     const sampleRate = input.sampleRate, frame = Math.max(1, Math.round(sampleRate * 0.01));
-    const threshold = 0.001, channelData = Array.from({ length: input.numberOfChannels }, (_, i) => input.getChannelData(i));
+    const threshold = 0.002, channelData = Array.from({ length: input.numberOfChannels }, (_, i) => input.getChannelData(i));
     const isSilentFrame = start => {
       const end = Math.min(input.length, start + frame);
       let sum = 0, count = 0;
@@ -3217,11 +3241,20 @@ const TTS = {
     let start = 0, end = input.length;
     while (start + frame < end && isSilentFrame(start)) start += frame;
     while (end - frame > start && isSilentFrame(end - frame)) end -= frame;
-    const padding = Math.round(sampleRate * 0.015);
+    const padding = Math.round(sampleRate * 0.008);
     start = Math.max(0, start - padding); end = Math.min(input.length, end + padding);
     if (start === 0 && end === input.length || end - start < sampleRate * 0.1) return { buffer: input, trimStart: 0 };
     const trimmed = ctx.createBuffer(input.numberOfChannels, end - start, sampleRate);
-    channelData.forEach((channel, i) => trimmed.copyToChannel(channel.subarray(start, end), i));
+    const fadeLength = Math.min(Math.round(sampleRate * 0.003), Math.floor((end - start) / 2));
+    channelData.forEach((channel, i) => {
+      trimmed.copyToChannel(channel.subarray(start, end), i);
+      const output = trimmed.getChannelData(i);
+      for (let n = 0; n < fadeLength; n++) {
+        const gain = n / Math.max(1, fadeLength);
+        output[n] *= gain;
+        output[output.length - 1 - n] *= gain;
+      }
+    });
     return { buffer: trimmed, trimStart: start / sampleRate };
   },
   mapEdgeBoundaries(text, from, boundaries, trimStart) {
@@ -3460,9 +3493,18 @@ const TTS = {
     if (ssml) q.set('ssml', 'true');
     return CONFIG.tts.voicerssUrl + '?' + q.toString();
   },
-  async edgeAudio(text, signal, cacheBookId = App.book && App.book.id) {
+  edgeStoryProsody(text) {
+    const sentence = text.trim(), basePitch = clamp(A.pitch, 0.5, 1.6);
+    if (/[?？]["'”’)]?\s*$/.test(sentence)) return { rate: 0.97, pitch: clamp(basePitch * 1.1, 0.5, 1.6) };
+    if (/[!！]["'”’)]?\s*$/.test(sentence)) return { rate: 1.02, pitch: clamp(basePitch * 1.08, 0.5, 1.6) };
+    if (/[;:—–,]["'”’)]?\s*$/.test(sentence)) return { rate: 0.96, pitch: clamp(basePitch * 0.98, 0.5, 1.6) };
+    if (/[.。]["'”’)]?\s*$/.test(sentence)) return { rate: 0.98, pitch: basePitch };
+    return { rate: 1, pitch: basePitch };
+  },
+  async edgeAudio(text, signal, cacheBookId = App.book && App.book.id, prosody = { rate: 1, pitch: 1 }) {
     const voice = A.edgeVoice;
-    const cacheId = cacheBookId ? 'edge-audio:v2:' + cacheBookId + ':' + voice + ':' + hashStr(text) : '';
+    const storyKey = prosody.rate !== 1 || prosody.pitch !== 1 ? ':prosody:' + prosody.rate + ':' + prosody.pitch : '';
+    const cacheId = cacheBookId ? 'edge-audio:v2:' + cacheBookId + ':' + voice + ':' + hashStr(text) + storyKey : '';
     if (cacheId) {
       try {
         const cached = await TTSAudioCache.get(cacheId);
@@ -3475,7 +3517,7 @@ const TTS = {
     for (;;) {
       let response;
       try {
-        response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, rate: 1 }), signal });
+        response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, rate: prosody.rate, pitch: prosody.pitch }), signal });
       } catch (error) {
         if (signal && signal.aborted || error.name === 'AbortError' || transientRetries >= 2) throw error;
         const delay = 500 * (2 ** transientRetries++) + Math.floor(Math.random() * 250);
@@ -3516,7 +3558,8 @@ const TTS = {
   requestEdgeChunk(i, from) {
     const c = this.model.chunks[i], text = this.model.text.slice(from, c.e).replace(/\s+/g, ' ');
     const controller = new AbortController();
-    const promise = this.edgeAudio(text, controller.signal).then(result => result, error => ({ error }));
+    const prosody = A.engine === 'edge' && A.cadence ? this.edgeStoryProsody(text) : { rate: 1, pitch: clamp(A.pitch, 0.5, 1.6) };
+    const promise = this.edgeAudio(text, controller.signal, App.book && App.book.id, prosody).then(result => result, error => ({ error }));
     return { i, from, text, controller, promise };
   },
   prefetchEdgeChunk(i, tk) {
@@ -4015,23 +4058,26 @@ const AudioUI = {
   sync() {
     const st = TTS.state, on = st !== 'idle';
     $('#audioBar').classList.toggle('hidden', !on);
+    if (!on) this.closePopup();
     const icon = st === 'playing' ? ICON.pause : st === 'loading' ? ICON.load : ICON.play;
     $('#abPlay').innerHTML = icon; $('#abPlayMini').innerHTML = icon;
     const label = st === 'playing' || st === 'loading' ? 'Pause' : 'Play';
     $('#abPlay').setAttribute('aria-label', label); $('#abPlayMini').setAttribute('aria-label', label);
     $('#audioBtn').classList.toggle('on', on);
     $('#abRate').textContent = (+A.rate).toFixed(2).replace(/\.?0+$/, '') + '×';
-    $('#abTitle').textContent = App.book && TTS.ch >= 0 ? chapterTitleFor(TTS.ch) : '';
+    $('#abPopupRate').textContent = (+A.rate).toFixed(1).replace(/\.0$/, '') + '×';
+    const voice = A.engine === 'edge' ? A.edgeVoice.replace(/Neural$/, '').split('-').pop() :
+      A.engine === 'voicerss' ? A.vrssVoice || 'VoiceRSS' : (TTS.voice() && TTS.voice().name) || 'Device voice';
+    $('#abPopupVoiceName').textContent = voice;
+    $('#abTitle').textContent = App.book ? App.book.meta.title : '';
     this.sleepLabel(); this.progress();
     if (Sheets.current === 'settingsSheet') syncAudioSettingsUI();
   },
   sleepLabel() {
     const sub = $('#abSub');
-    if (TTS.sleepEnd) sub.textContent = 'Sleep in ' + fmtTime((TTS.sleepEnd - Date.now()) / 1000);
-    else if (TTS.sleepEoc) sub.textContent = 'Sleep at end of chapter';
-    else if (TTS.state === 'loading') sub.textContent = 'Preparing…';
-    else if (TTS.state === 'playing' && TTS.utt && !TTS.utt._started && performance.now() - TTS.lastSpeakAt > 1200) sub.textContent = 'Waiting for the voice…';
-    else sub.textContent = App.book ? App.book.meta.title : '';
+    sub.textContent = TTS.ch >= 0 ? chapterTitleFor(TTS.ch) : TTS.state === 'loading' ? 'Preparing…' : '';
+    $('#abPopupSleepValue').textContent = TTS.sleepEnd ? fmtTime((TTS.sleepEnd - Date.now()) / 1000) :
+      TTS.sleepEoc ? 'Chapter' : A.sleep ? A.sleep + 'm' : 'Off';
   },
   progress() {
     const m = TTS.model; if (!m) return;
@@ -4041,7 +4087,22 @@ const AudioUI = {
     $('#abMiniBar').style.width = (p * 100) + '%';
     $('#abMiniTime').textContent = '-' + fmtTime(total - el);
     $('#abMiniTitle').textContent = chapterTitleFor(TTS.ch);
+    const chunk = TTS.chunk();
+    if (chunk) {
+      const key = TTS.ch + ':' + chunk.s;
+      const snippet = $('#abPopupSnippet');
+      if (snippet.dataset.chunk !== key) {
+        snippet.dataset.chunk = key;
+        snippet.textContent = m.text.slice(chunk.s, chunk.e).trim();
+      }
+    }
   },
+  openPopup() {
+    if (TTS.state === 'idle') return;
+    document.body.classList.add('audio-popup-open');
+    $('#abPopupClose').focus({ preventScroll: true });
+  },
+  closePopup() { document.body.classList.remove('audio-popup-open'); },
   chip(show) { $('#abChip').classList.toggle('show', !!show && TTS.active()); },
   voicesChanged() { if ($('#voiceSelect')) fillVoiceSelect(); }
 };
@@ -4069,7 +4130,8 @@ function buildAudioSettings() {
   <div class="grp"><h3>Voice</h3>
     <div class="chips" data-aseg="preset"><button data-v="auto">Best available</button><button data-v="deep">Deep</button><button data-v="natural">Natural</button><button data-v="narrator">Narrator</button><button data-v="story">Storytelling</button></div>
     <div class="row" style="margin-top:8px"><select id="voiceSelect" aria-label="Voice"></select><button class="small-btn" id="voicePreview">Preview</button></div>
-    <button class="switch-row" data-atoggle="cadence">Storytelling cadence (device voices)<span class="switch"></span></button>
+    <button class="switch-row" data-atoggle="cadence">Storytelling cadence<span class="switch"></span></button>
+    <p class="hint">Adds subtle sentence-aware pacing and pitch changes for EdgeTTS and device voices.</p>
     <p class="hint" id="voiceHint">Voices come from your device and are free. For more natural voices on iPhone or iPad, download an Enhanced or Premium voice in Settings → Accessibility → Spoken Content → Voices. On Windows, Microsoft Edge offers free Natural voices.</p>
   </div>
   <div class="grp"><h3>Sound</h3>
@@ -4244,7 +4306,7 @@ function previewVoice() {
   const sample = /^nl/i.test(bookLang()) ? 'Zo klinkt deze stem bij het voorlezen. Hoor je het verschil?' : 'This is how this voice sounds when reading your book. Can you hear the difference?';
   if (A.engine === 'edge') {
     if (!edgeProxyUrl()) { toast('Enter your EdgeTTS Worker URL below'); return; }
-    TTS.edgeAudio(sample, undefined, null).then(result => {
+    TTS.edgeAudio(sample, undefined, null, { rate: 1, pitch: clamp(A.pitch, 0.5, 1.6) }).then(result => {
       const blob = result.blob;
       const url = URL.createObjectURL(blob), a = new window.Audio(url);
       a.volume = clamp(A.volume / 100, 0, 1);
@@ -4293,10 +4355,22 @@ function bindAudio() {
   $('#abSpeedUp').addEventListener('click', () => TTS.setRate(A.rate + 0.1));
   $('#abRate').addEventListener('click', () => TTS.setRate(1));
   $('#abStop').addEventListener('click', () => TTS.stop(true));
+  $('#abPopupClose').addEventListener('click', () => AudioUI.closePopup());
+  $('#abPopupBackdrop').addEventListener('click', () => AudioUI.closePopup());
   $('#abSettings').addEventListener('click', () => openSettings('audio'));
+  $('#abPopupSpeed').addEventListener('click', () => {
+    const speeds = [0.8, 1, 1.1, 1.2, 1.5], next = speeds.find(speed => speed > A.rate + 0.001) || speeds[0];
+    TTS.setRate(next);
+  });
+  $('#abPopupVoice').addEventListener('click', () => openSettings('audio'));
+  $('#abPopupSleep').addEventListener('click', () => {
+    const timers = [0, 15, 30, 60], current = timers.findIndex(value => value >= +A.sleep), next = timers[current < 0 ? 0 : (current + 1) % timers.length];
+    setAudio('sleep', next);
+    toast(next ? 'Sleep timer: ' + next + ' min' : 'Sleep timer off');
+  });
   $('#abHere').addEventListener('click', () => TTS.readHere());
   $('#abGo').addEventListener('click', () => TTS.goToAudio());
-  $('#abMini').addEventListener('click', e => { if (!e.target.closest('button')) setChrome(true); });
+  $('#abMini').addEventListener('click', e => { if (!e.target.closest('button')) AudioUI.openPopup(); });
   $$('#setTabs button').forEach(b => b.addEventListener('click', () => openSettings(b.dataset.stab)));
   const sk = $('#abSeek');
   sk.addEventListener('input', () => {
@@ -5561,6 +5635,7 @@ function bindKeys() {
         (t.closest('button') && (e.key === ' ' || e.key === 'Enter')))) return;
       if (SpeedReader.handleKey(e)) { e.preventDefault(); return; }
     }
+    if (e.key === 'Escape' && document.body.classList.contains('audio-popup-open')) { AudioUI.closePopup(); return; }
     if (t && (t.matches('input:not([type=range]), textarea') || (t.matches('input[type=range]') && /Arrow|Home|End|Page/.test(e.key)))) { if (e.key === 'Escape') t.blur(); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === 'Escape') { if (Sheets.current) closeSheet(); else if (Sel.active || Sel.hlId) clearSelection(); else if (App.chrome) setChrome(false); return; }

@@ -191,7 +191,7 @@ async function openSocket(url, headers, signal) {
   };
 }
 
-async function synthesize(text, voice, rate, signal) {
+async function synthesize(text, voice, rate, pitch, signal) {
   const id = rand(16);
   const gec = await generateSecMsGec();
   const major = CHROMIUM_FULL_VERSION.split('.')[0];
@@ -209,8 +209,9 @@ async function synthesize(text, voice, rate, signal) {
     JSON.stringify({ context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: true }, outputFormat: 'audio-24khz-48kbitrate-mono-mp3' } } } }));
     const lang = voice.split('-').slice(0, 2).join('-');
     const pct = Math.round((rate - 1) * 100);
+    const pitchHz = Math.round((pitch - 1) * 24);
     const ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='" + lang + "'><voice name='" + voice +
-      "'><prosody pitch='+0Hz' rate='" + (pct >= 0 ? '+' : '') + pct + "%' volume='+0%'>" + esc(text) + '</prosody></voice></speak>';
+      "'><prosody pitch='" + (pitchHz >= 0 ? '+' : '') + pitchHz + "Hz' rate='" + (pct >= 0 ? '+' : '') + pct + "%' volume='+0%'>" + esc(text) + '</prosody></voice></speak>';
     await ws.send(lines({ 'Content-Type': 'application/ssml+xml', Path: 'ssml', 'X-RequestId': id, 'X-Timestamp': date }) + '\r\n' + ssml);
 
     let audio = new Uint8Array(0), boundaries = [];
@@ -259,6 +260,7 @@ export default {
     const text = typeof body.text === 'string' ? body.text.trim() : '';
     const voice = typeof body.voice === 'string' ? body.voice : '';
     const rate = Math.min(2, Math.max(0.5, Number(body.rate) || 1));
+    const pitch = Math.min(1.6, Math.max(0.5, Number(body.pitch) || 1));
     if (!text || text.length > MAX_CHARS) return json({ error: 'text must be 1 to ' + MAX_CHARS + ' characters' }, 400);
     if (!/^[A-Za-z0-9-]{5,64}Neural$/.test(voice)) return json({ error: 'unknown voice name' }, 400);
 
@@ -277,7 +279,7 @@ export default {
         }, TIMEOUT_MS);
       });
       const { audio, boundaries } = await Promise.race([
-        synthesize(text, voice, rate, controller.signal),
+        synthesize(text, voice, rate, pitch, controller.signal),
         timeoutPromise
       ]);
       const boundaryHeader = encodeURIComponent(JSON.stringify(boundaries));
