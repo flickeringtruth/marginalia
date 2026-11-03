@@ -1,7 +1,7 @@
-/* Marginalia catalog paging: "Load more" for public-domain search results.
+/* Marginalia catalog paging: "Load more" for public-domain search results, with a choice per book:
+   "Save to device" (stores the EPUB in your library) or "Read on site" (opens the Gutenberg HTML version).
    Loaded from index.html as a module. Remove the script tag to restore the old search.
-   It follows the "next" link in Project Gutenberg's own search feed, so it can only page
-   as far as Gutenberg provides one. Before the first search, check that this link appears. */
+   Paging follows the "next" link in Project Gutenberg's own search feed. */
 (() => {
   if (window.__marginaliaCatalogPaging) return;
   window.__marginaliaCatalogPaging = true;
@@ -17,7 +17,7 @@
 
   let gen = 0, state = null;
 
-  // Only https links to www.gutenberg.org with an expected path are followed.
+  // Only https links to www.gutenberg.org with the expected paths are followed.
   function safeUrl(href, pathOk) {
     try {
       const u = new URL(href, ORIGIN);
@@ -58,7 +58,10 @@
     return `<article class="catalog-book"><div class="catalog-book-copy"><b>${esc(b.title)}</b>` +
       `<span>${esc(b.authors.join(', ') || 'Unknown author')}</span>` +
       `<small>${b.language ? esc(b.language) + ' · ' : ''}${b.downloads.toLocaleString()} downloads · Public domain in the USA</small></div>` +
-      `<a class="small-btn" data-catalog-download="${b.id}" href="${esc(b.epub)}" target="_blank" rel="noopener noreferrer" aria-label="Download ${esc(b.title)} EPUB">Download EPUB</a></article>`;
+      `<div class="ml-cat-btns">` +
+      `<button type="button" class="small-btn" data-save-gid="${b.id}">Save to device</button>` +
+      `<a class="small-btn" href="https://www.gutenberg.org/ebooks/${b.id}.html.images" target="_blank" rel="noopener noreferrer">Read on site</a>` +
+      `</div></article>`;
   }
 
   function ensureLayout() {
@@ -73,12 +76,12 @@
   function renderFoot(loading) {
     const foot = results.querySelector('#mlFoot');
     if (foot) {
-      foot.innerHTML = state.next && !loading
-        ? '<button type="button" class="pill ghost" id="mlMore" style="margin:14px auto;display:flex">Load more</button>'
-        : (loading ? '<p class="hint catalog-empty">Loading more…</p>' : '');
+      foot.innerHTML = loading
+        ? '<p class="hint catalog-empty">Loading more…</p>'
+        : (state.next ? '<button type="button" class="pill ghost" id="mlMore" style="margin:14px auto;display:flex">Load more</button>' : '');
     }
-    const n = state.seen.size;
     if (loading) return;
+    const n = state.seen.size;
     const failed = state.failed ? ' ' + state.failed + (state.failed === 1 ? ' result' : ' results') + ' could not be verified.' : '';
     status.textContent = n
       ? n + (n === 1 ? ' verified EPUB' : ' verified EPUBs') + (state.next ? ' so far.' : '.') + failed
@@ -100,7 +103,11 @@
     const fresh = [];
     outcomes.forEach(o => {
       if (o.status === 'rejected') { if (o.reason && o.reason.name !== 'AbortError') state.failed++; return; }
-      if (o.value && !state.seen.has(o.value.id)) { state.seen.add(o.value.id); fresh.push(o.value); }
+      if (o.value && !state.seen.has(o.value.id)) {
+        state.seen.add(o.value.id);
+        state.books.set(o.value.id, o.value);
+        fresh.push(o.value);
+      }
     });
     ensureLayout().insertAdjacentHTML('beforeend', fresh.map(card).join(''));
     renderFoot(false);
@@ -109,7 +116,7 @@
   async function search(query) {
     const g = ++gen;
     if (state) state.ctrl.abort();
-    state = { seen: new Set(), failed: 0, next: null, ctrl: new AbortController() };
+    state = { seen: new Set(), books: new Map(), failed: 0, next: null, ctrl: new AbortController() };
     results.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
     status.classList.remove('error');
     status.textContent = 'Searching and verifying public-domain EPUBs…';
@@ -127,14 +134,29 @@
 
   async function loadMore() {
     if (!state || !state.next) return;
-    const g = gen;
-    const url = state.next; state.next = null;
+    const g = gen, url = state.next;
+    state.next = null;
     renderFoot(true);
     try { await loadPage(url, g); }
     catch (e) {
       if (g !== gen || e.name === 'AbortError') return;
       state.next = url; renderFoot(false);
       status.textContent = e.message || 'Could not load more results.';
+      status.classList.add('error');
+    }
+  }
+
+  // Save to device uses the library module. If the browser blocks the download, the EPUB opens in a new tab instead.
+  async function saveBook(b, btn) {
+    if (!window.__marginaliaSaveBook) { window.open(b.epub, '_blank', 'noopener'); return; }
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      await window.__marginaliaSaveBook(b);
+      btn.textContent = 'Saved ✓';
+    } catch (err) {
+      btn.disabled = false; btn.textContent = label;
+      status.textContent = err.message || 'Could not save this book.';
       status.classList.add('error');
     }
   }
@@ -152,5 +174,20 @@
     search(q);
   }, true);
 
-  results.addEventListener('click', e => { if (e.target.closest('#mlMore')) loadMore(); });
+  results.addEventListener('click', e => {
+    const save = e.target.closest('[data-save-gid]');
+    if (save) {
+      const b = state && state.books.get(Number(save.dataset.saveGid));
+      if (b) saveBook(b, save);
+      return;
+    }
+    if (e.target.closest('#mlMore')) loadMore();
+  });
+
+  const css = `
+  .ml-cat-btns{display:flex;flex-direction:column;gap:6px;flex:none}
+  .ml-cat-btns .small-btn{text-align:center;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}`;
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
 })();
