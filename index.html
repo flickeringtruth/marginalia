@@ -438,6 +438,25 @@ body.audio-popup-open .ab-full{left:50%;right:auto;top:50%;bottom:auto;width:min
 body.audio-popup-open #abMini{opacity:0;pointer-events:none}
 body.audio-popup-open #abSpeedDown,body.audio-popup-open #abRate,body.audio-popup-open #abSpeedUp,body.audio-popup-open #abSettings{display:none}
 body.audio-popup-open #abStop{display:none}
+body.audio-lyrics-open .ab-popup-backdrop,body.audio-lyrics-open .ab-full,body.audio-lyrics-open #abMini{opacity:0;pointer-events:none}
+.ab-lyrics{position:absolute;inset:0;z-index:2;display:none;pointer-events:auto;background:var(--bg);color:var(--fg);padding:calc(var(--sat) + 10px) calc(var(--sar) + 20px) calc(var(--sab) + 18px) calc(var(--sal) + 20px)}
+body.audio-lyrics-open .ab-lyrics{display:flex;flex-direction:column}
+.ab-lyrics-head{display:flex;align-items:center;gap:12px;min-height:48px;flex:none}
+.ab-lyrics-book{flex:1;min-width:0}
+.ab-lyrics-book b,.ab-lyrics-book span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ab-lyrics-book b{font-size:15px;font-weight:650}
+.ab-lyrics-book span{font-size:12px;color:var(--muted);margin-top:2px}
+.ab-lyrics-close,.ab-lyrics-play{width:44px;height:44px;border-radius:22px;background:var(--card);display:flex;align-items:center;justify-content:center;flex:none}
+.ab-lyrics-close svg,.ab-lyrics-play svg{width:22px;height:22px}
+.ab-lyrics-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;scrollbar-width:none;padding:38vh 0}
+.ab-lyrics-list::-webkit-scrollbar{display:none}
+.ab-lyric-line{display:block;width:100%;padding:12px 4px;background:none;color:var(--muted);font-family:inherit;font-size:clamp(20px,5.5vw,30px);font-weight:600;line-height:1.3;text-align:center;opacity:.38;transition:opacity .18s,color .18s,transform .18s}
+.ab-lyric-line.active{color:var(--fg);opacity:1;transform:scale(1.015)}
+.ab-lyric-line.past{opacity:.62}
+.ab-lyrics-foot{flex:none;padding-top:12px;text-align:center;color:var(--muted);font-size:12px}
+.ab-mini-lyrics{width:38px;height:44px;font-size:21px}
+.ab-readalong{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:44px;margin-top:8px;border-radius:14px;background:var(--card);color:var(--fg);font-size:14px;font-weight:600}
+.ab-readalong svg{width:20px;height:20px}
 .ab-popup-snippet,.ab-popup-quick,.ab-popup-close{display:none}
 .ab-popup-book{display:none;width:38px;height:52px;object-fit:cover;border-radius:6px;flex:none;background:var(--card)}
 body.audio-popup-open .ab-popup-book{display:block}
@@ -724,12 +743,23 @@ body.is-pdf #dictFloat{display:none!important}
         <button id="abPopupVoice"><b id="abPopupVoiceName">Voice</b><span>Voice</span></button>
         <button id="abPopupSleep"><b id="abPopupSleepValue">Off</b><span>Sleep timer</span></button>
       </div>
+      <button class="ab-readalong" id="abLyricsButton"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 11h10M5 16h14M5 21h10"/></svg>Read along</button>
     </div>
-    <div id="abMini" role="group" aria-label="Read aloud">
-      <button class="ab-play" id="abPlayMini" aria-label="Play"></button>
-      <div class="ab-mini-mid"><div id="abMiniTitle"></div><div class="bar"><i id="abMiniBar"></i></div></div>
-      <span id="abMiniTime"></span>
-    </div>
+      <section class="ab-lyrics" id="abLyrics" role="dialog" aria-modal="true" aria-label="Read along">
+        <header class="ab-lyrics-head">
+          <button class="ab-lyrics-close" id="abLyricsClose" aria-label="Close read along"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          <div class="ab-lyrics-book"><b id="abLyricsBookTitle"></b><span id="abLyricsChapter"></span></div>
+          <button class="ab-lyrics-play" id="abLyricsPlay" aria-label="Pause"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/></svg></button>
+        </header>
+        <div class="ab-lyrics-list" id="abLyricsList" aria-live="polite"></div>
+        <footer class="ab-lyrics-foot">Tap a line to read from there</footer>
+      </section>
+      <div id="abMini" role="group" aria-label="Read aloud">
+        <button class="ab-play" id="abPlayMini" aria-label="Play"></button>
+        <div class="ab-mini-mid"><div id="abMiniTitle"></div><div class="bar"><i id="abMiniBar"></i></div></div>
+        <button class="ab-mini ab-mini-lyrics" id="abMiniLyrics" aria-label="Open read along" title="Read along">≡</button>
+        <span id="abMiniTime"></span>
+      </div>
   </div>
   <header id="topBar" class="chrome">
     <button class="icon-btn" id="backBtn" aria-label="Back to library" title="Library (L)"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
@@ -4070,14 +4100,20 @@ const AudioUI = {
   dragging: false,
   coverBookId: '',
   coverUrl: '',
+  lyricModel: null,
+  lyricRanges: [],
+  lyricRows: [],
+  lyricLineIndex: -1,
   sync() {
     const st = TTS.state, on = st !== 'idle';
     $('#audioBar').classList.toggle('hidden', !on);
-    if (!on) this.closePopup();
+    if (!on) { this.closePopup(); this.closeLyrics(); }
     const icon = st === 'playing' ? ICON.pause : st === 'loading' ? ICON.load : ICON.play;
     $('#abPlay').innerHTML = icon; $('#abPlayMini').innerHTML = icon;
     const label = st === 'playing' || st === 'loading' ? 'Pause' : 'Play';
     $('#abPlay').setAttribute('aria-label', label); $('#abPlayMini').setAttribute('aria-label', label);
+    $('#abLyricsPlay').innerHTML = icon;
+    $('#abLyricsPlay').setAttribute('aria-label', label);
     $('#audioBtn').classList.toggle('on', on);
     $('#abRate').textContent = (+A.rate).toFixed(2).replace(/\.?0+$/, '') + '×';
     $('#abPopupRate').textContent = (+A.rate).toFixed(1).replace(/\.0$/, '') + '×';
@@ -4139,6 +4175,68 @@ const AudioUI = {
         snippet.textContent = m.text.slice(chunk.s, chunk.e).trim();
       }
     }
+    if (document.body.classList.contains('audio-lyrics-open')) this.syncLyrics();
+  },
+  openLyrics() {
+    if (!TTS.model || !TTS.model.chunks.length) {
+      toast('Start read aloud to open Read along.');
+      return;
+    }
+    document.body.classList.remove('audio-popup-open');
+    document.body.classList.add('audio-lyrics-open');
+    this.syncLyrics(true);
+    $('#abLyricsClose').focus({ preventScroll: true });
+  },
+  closeLyrics() { document.body.classList.remove('audio-lyrics-open'); },
+  syncLyrics(force = false) {
+    const model = TTS.model;
+    if (!model) return;
+    $('#abLyricsBookTitle').textContent = App.book ? App.book.meta.title : '';
+    $('#abLyricsChapter').textContent = chapterTitleFor(TTS.ch);
+    if (this.lyricModel !== model) {
+      this.lyricRanges = model.paras.flatMap(paragraph =>
+        splitSentences(model.text, paragraph.s, paragraph.e)
+          .flatMap(([start, end]) => splitLong(model.text, start, end, 180).map(([s, e]) => ({ s, e })))
+      );
+      if (!this.lyricRanges.length) this.lyricRanges = model.chunks.map(({ s, e }) => ({ s, e }));
+      const list = $('#abLyricsList'), fragment = document.createDocumentFragment();
+      this.lyricRows = this.lyricRanges.map(({ s, e }, index) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'ab-lyric-line';
+        row.dataset.lyricIndex = String(index);
+        row.textContent = model.text.slice(s, e).trim();
+        fragment.appendChild(row);
+        return row;
+      });
+      list.replaceChildren(fragment);
+      this.lyricModel = model;
+      this.lyricLineIndex = -1;
+    }
+    let low = 0, high = this.lyricRanges.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (this.lyricRanges[middle].s <= TTS.pos) low = middle + 1;
+      else high = middle;
+    }
+    let index = Math.max(0, low - 1);
+    if (this.lyricRanges[index] && TTS.pos >= this.lyricRanges[index].e && index + 1 < this.lyricRanges.length) index++;
+    if (!this.lyricRows.length || (!force && index === this.lyricLineIndex)) return;
+    const previous = this.lyricLineIndex;
+    if (previous >= 0 && this.lyricRows[previous]) {
+      this.lyricRows[previous].classList.remove('active');
+      this.lyricRows[previous].setAttribute('aria-current', 'false');
+    }
+    const row = this.lyricRows[index];
+    row.classList.add('active');
+    row.setAttribute('aria-current', 'true');
+    if (previous < index) {
+      for (let i = Math.max(0, previous); i < index; i++) this.lyricRows[i].classList.add('past');
+    } else {
+      for (let i = index + 1; i <= previous; i++) this.lyricRows[i].classList.remove('past');
+    }
+    this.lyricLineIndex = index;
+    row.scrollIntoView({ block: 'center', behavior: force ? 'auto' : 'smooth' });
   },
   openPopup() {
     if (TTS.state === 'idle') return;
@@ -4400,6 +4498,16 @@ function bindAudio() {
   $('#abStop').addEventListener('click', () => TTS.stop(true));
   $('#abPopupClose').addEventListener('click', () => AudioUI.closePopup());
   $('#abPopupBackdrop').addEventListener('click', () => AudioUI.closePopup());
+  $('#abLyricsButton').addEventListener('click', () => AudioUI.openLyrics());
+  $('#abMiniLyrics').addEventListener('click', e => { e.stopPropagation(); AudioUI.openLyrics(); });
+  $('#abLyricsClose').addEventListener('click', () => AudioUI.closeLyrics());
+  $('#abLyricsPlay').addEventListener('click', () => TTS.toggle());
+  $('#abLyricsList').addEventListener('click', e => {
+    const row = e.target.closest('[data-lyric-index]');
+    if (!row || !TTS.model) return;
+    const line = AudioUI.lyricRanges[+row.dataset.lyricIndex];
+    if (line) TTS.seek(TTS.ch, line.s);
+  });
   $('#abSettings').addEventListener('click', () => openSettings('audio'));
   $('#abPopupSpeed').addEventListener('click', () => {
     const speeds = [0.8, 1, 1.1, 1.2, 1.5], next = speeds.find(speed => speed > A.rate + 0.001) || speeds[0];
@@ -5655,6 +5763,7 @@ function bindKeys() {
         (t.closest('button') && (e.key === ' ' || e.key === 'Enter')))) return;
       if (SpeedReader.handleKey(e)) { e.preventDefault(); return; }
     }
+    if (e.key === 'Escape' && document.body.classList.contains('audio-lyrics-open')) { AudioUI.closeLyrics(); return; }
     if (e.key === 'Escape' && document.body.classList.contains('audio-popup-open')) { AudioUI.closePopup(); return; }
     if (t && (t.matches('input:not([type=range]), textarea') || (t.matches('input[type=range]') && /Arrow|Home|End|Page/.test(e.key)))) { if (e.key === 'Escape') t.blur(); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
