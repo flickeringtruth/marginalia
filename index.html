@@ -3134,6 +3134,7 @@ const TTS = {
   edgeScheduleToken: 0, edgeScheduleNext: 0, edgeScheduleEnd: 0, edgePlayingIndex: -1,
   audioUrl: '', startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
   hasBoundary: new Map(), cps: LS.get('reader.audio.cps', {}),
+  nodeMaps: new WeakMap(),
   ticker: 0, watchdog: 0, sylTimers: [], unit: null, word: null, trail: [],
   els: new Map(), layer: null, driving: 0, userAt: 0, suspended: false, lastScrollH: 0, lastVisCheck: 0,
   sleepEnd: 0, sleepTimer: 0, sleepEoc: false, evlog: [],
@@ -3876,13 +3877,20 @@ const TTS = {
     return out;
   },
   renderRoot() { if (!App.r || !App.r.roots) return null; return App.r.roots().find(r => +r.getAttribute('data-ch') === this.ch) || null; },
+  nodeMapFor(root) {
+    let map = this.nodeMaps.get(root);
+    if (!map) { map = buildNodeMap(root); this.nodeMaps.set(root, map); }
+    return map;
+  },
   clearEls() { this.els.forEach(e => e.remove()); this.els.clear(); },
   renderHL() {
     if (!this.active() || !App.r || !App.r.ready) return;
     const layer = App.r && App.r.alayer, root = this.renderRoot();
     if (layer !== this.layer) { this.clearEls(); this.layer = layer; }
-    if (!layer || !root || !this.model || root.textContent.length !== this.model.len) { this.els.forEach(e => e.classList.remove('on')); return; }
-    const lr = layer.getBoundingClientRect(), map = buildNodeMap(root), want = new Map();
+    if (!layer || !root || !this.model) { this.els.forEach(e => e.classList.remove('on')); return; }
+    const map = this.nodeMapFor(root);
+    if (map.total !== this.model.len) { this.els.forEach(e => e.classList.remove('on')); return; }
+    const lr = layer.getBoundingClientRect(), want = new Map();
     for (const d of this.draws()) {
       rangeRectsFor(map, d.s, d.e).forEach((r, i) => {
         const key = d.kind === 'cur' ? 'cur:' + i : d.kind + ':' + d.s + ':' + i;   // only the current unit glides; others fade
@@ -3902,7 +3910,7 @@ const TTS = {
   unitVisible() {
     const root = this.renderRoot(); if (!root || !this.unit) return false;
     if (S.layout === 'paged' && App.r.pageOfOffset) return App.r.ch === this.ch && App.r.pageOfOffset(this.unit[0]) === App.r.page; // logical page, immune to slide animations
-    const rects = rangeRectsFor(buildNodeMap(root), this.unit[0], Math.max(this.unit[0] + 1, this.unit[1]));
+    const rects = rangeRectsFor(this.nodeMapFor(root), this.unit[0], Math.max(this.unit[0] + 1, this.unit[1]));
     if (!rects.length) return false;
     const box = (App.r.vp && S.layout === 'paged' ? App.r.vp : App.r.sc).getBoundingClientRect();
     return rects.some(r => r.right > box.left + 1 && r.left < box.right - 1 && r.bottom > box.top + 1 && r.top < box.bottom - 1);
@@ -3923,7 +3931,7 @@ const TTS = {
     }
     const root = this.renderRoot();
     if (!root) { this.drive(() => r.goTo({ ch: this.ch, off: this.unitStart(), frac: 0, frag: '' }), 900); return; }
-    const rect = rangeRectsFor(buildNodeMap(root), this.unit[0], Math.max(this.unit[0] + 1, this.unit[1]))[0]; if (!rect) return;
+    const rect = rangeRectsFor(this.nodeMapFor(root), this.unit[0], Math.max(this.unit[0] + 1, this.unit[1]))[0]; if (!rect) return;
     const sr = r.sc.getBoundingClientRect(), h = sr.height;
     if (rect.top < sr.top + h * 0.16 || rect.bottom > sr.top + h * 0.72) {
       if (r.engine.raf && this.isDriving()) return;
@@ -3948,8 +3956,8 @@ const TTS = {
   },
   readHere() { this.userAt = 0; const loc = App.r.getLoc(); this.suspended = false; AudioUI.chip(false); if (this.state === 'playing' || this.state === 'loading') this.speakFrom(loc.ch, Math.max(0, loc.off || 0)); else this.playFrom(loc.ch, Math.max(0, loc.off || 0)); },
   goToAudio() { this.userAt = 0; this.suspended = false; AudioUI.chip(false); this.follow(true); },
-  onRenderer() { this.clearEls(); this.layer = null; if (this.active()) { this.renderHL(); } },
-  onBookOpen() { this.models.clear(); this.model = null; this.ch = -1; this.pos = 0; this.unit = null; this.trail = []; AudioUI.sync(); },
+  onRenderer() { this.nodeMaps = new WeakMap(); this.clearEls(); this.layer = null; if (this.active()) { this.renderHL(); } },
+  onBookOpen() { this.nodeMaps = new WeakMap(); this.models.clear(); this.model = null; this.ch = -1; this.pos = 0; this.unit = null; this.trail = []; AudioUI.sync(); },
   shutdown() { if (this.active()) this.end(false); this.models.clear(); this.model = null; this.layer = null; },
   savePos: debounce(() => { if (App.book && TTS.model) LS.set(TTS.posKey(), { ch: TTS.ch, off: TTS.unitStart(), t: Date.now() }); }, 800),
 
