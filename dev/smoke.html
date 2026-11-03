@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marginalia smoke test</title>
+<style>
+body{font:16px/1.4 system-ui,sans-serif;padding:16px;background:#fff;color:#111}
+button{min-height:44px;padding:0 16px;font:inherit;border-radius:10px;border:1px solid #ccc;background:#f2f2f4}
+li{margin:4px 0}
+li.ok::before{content:"✓ ";color:#0a7d2c}
+li.bad::before{content:"✗ ";color:#c00}
+iframe{width:100%;height:560px;border:1px solid #ccc;margin-top:12px}
+</style>
+</head>
+<body>
+<h1>Marginalia smoke test</h1>
+<p>Loads the app in a frame and checks that the main parts and the fix modules are present. Open this page from the GitHub Pages address of the repo.</p>
+<button id="run">Run test</button>
+<ul id="out"></ul>
+<iframe id="app" src="../index.html" hidden></iframe>
+<script>
+const out = document.getElementById('out');
+const frame = document.getElementById('app');
+const log = (ok, msg) => {
+  const li = document.createElement('li');
+  li.className = ok ? 'ok' : 'bad';
+  li.textContent = msg;
+  out.appendChild(li);
+};
+
+function check() {
+  out.innerHTML = '';
+  let d, w;
+  try { d = frame.contentDocument; w = frame.contentWindow; }
+  catch (e) { log(false, 'Cannot read the app frame: ' + e.message); return; }
+  if (!d || !w) { log(false, 'The app did not load in the frame.'); return; }
+
+  ['#library', '#libGrid', '#catalogForm', '#catalogResults', '#audioBody', '#topBar', '#selMenu', '#speedReader', '#moreBtn', '#settingsSheet']
+    .forEach(sel => log(!!d.querySelector(sel), 'Element ' + sel));
+  log(!!w.__reader, 'App controller is available (window.__reader)');
+  log(!!w.__marginaliaSpeechFix, 'Module fixes/speech.js loaded');
+  log(!!w.__marginaliaLibrary, 'Module fixes/library.js loaded');
+  log(!!w.__marginaliaVoices, 'Module fixes/voices.js loaded');
+  log(!!w.__marginaliaReaderTools, 'Module fixes/reader-tools.js loaded');
+  log(!!w.__marginaliaCatalogPaging, 'Module fixes/catalog-paging.js loaded');
+  log(!!d.getElementById('mlShelf'), 'Library "Start here" shelf rendered');
+  log(!!d.getElementById('mlBar'), 'Library category bar rendered');
+  const cards = d.querySelectorAll('.card').length;
+  log(true, 'Library cards: ' + cards + ' (0 is fine on an empty library)');
+  log(!!w.__reader.TTS && typeof w.__reader.TTS.speakFrom === 'function', 'Read-aloud controller present');
+  log(typeof w.__reader.HL === 'object' && Array.isArray(w.__reader.HL.list), 'Highlights store present');
+  log(typeof localStorage === 'object', 'localStorage available in this browser');
+}
+
+document.getElementById('run').onclick = () => {
+  out.innerHTML = '';
+  frame.hidden = false;
+  frame.onload = () => setTimeout(check, 1500);
+  frame.src = '../index.html?smoke=' + Date.now();
+};
+</script>
+</body>
+</html>
