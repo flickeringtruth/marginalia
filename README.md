@@ -6,12 +6,12 @@ An ebook reader that runs entirely in your browser. Import an EPUB, PDF, TXT or 
 
 ## Development
 
-The vocabulary notebook is written in TypeScript. Install the development dependency and rebuild its browser module after editing:
+The vocabulary notebook and public-domain book catalog are written in TypeScript. Install the development dependency and rebuild their browser modules after editing:
 
 ```sh
 npm install
-npm run build:vocabulary
+npm run build
 npm test
 ```
 
-Commit the generated `build/vocabulary.js` with TypeScript changes so the static app can load it without a build step at runtime.
+Commit the generated JavaScript under `build/` with TypeScript changes so the static app can load it without a build step at runtime. The catalog uses Project Gutenberg's OPDS feed and verifies that each book is marked public domain in the United States before showing its EPUB download link; copyright status can differ in other countries.

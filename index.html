@@ -68,6 +68,7 @@ svg{display:block}
 .lib-head h1{margin:0;font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.02em}
 .lib-head .sub{color:var(--muted);font-size:15px;margin-top:4px}
 .lib-actions{display:flex;gap:4px;align-items:center}
+.lib-discover{background:var(--card);color:var(--fg)}
 .pill{height:44px;padding:0 18px;border-radius:22px;background:var(--accent);color:#fff;font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:6px}
 .pill svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round}
 .pill.ghost{background:var(--card);color:var(--fg)}
@@ -99,6 +100,22 @@ svg{display:block}
 .empty p{color:var(--muted);line-height:1.5;margin:0 0 24px;font-size:15px}
 .empty .actions{display:flex;flex-direction:column;gap:10px;align-items:center}
 .lib-foot{max-width:1100px;margin:40px auto 0;color:var(--muted);font-size:13px;line-height:1.5}
+.catalog-sheet{height:86vh;height:86dvh}
+#catalogForm{display:flex;gap:8px;margin:4px 0 8px}
+#catalogSearch{flex:1;min-width:0;height:46px;border-radius:12px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:16px;padding:0 12px}
+#catalogForm .pill{height:46px}
+#catalogStatus{min-height:20px;margin:4px 0 8px;color:var(--muted);font-size:13px}
+#catalogStatus.error{color:var(--danger)}
+.catalog-book{display:flex;align-items:center;gap:10px;padding:12px 0;border-top:.5px solid var(--line)}
+.catalog-book-copy{flex:1;min-width:0}
+.catalog-book-copy b,.catalog-book-copy span,.catalog-book-copy small{display:block}
+.catalog-book-copy b{font-size:15px;line-height:1.35}
+.catalog-book-copy span{margin-top:3px;color:var(--muted);font-size:13px}
+.catalog-book-copy small{margin-top:4px;color:var(--muted);font-size:11px}
+.catalog-book .small-btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 12px;text-decoration:none}
+.catalog-book .small-btn:disabled{opacity:.45}
+.catalog-empty,.catalog-limit{margin:18px 0}
+.catalog-note{margin-top:12px;padding-top:10px;border-top:.5px solid var(--line);color:var(--muted);font-size:12px;line-height:1.45}
 .drop-hint{position:fixed;inset:12px;border:2px dashed var(--accent);border-radius:20px;display:none;align-items:center;justify-content:center;font-weight:600;color:var(--accent);background:var(--chrome);z-index:90;pointer-events:none}
 body.dragging .drop-hint{display:flex}
 
@@ -613,6 +630,7 @@ body.is-pdf #dictFloat{display:none!important}
   <header class="lib-head">
     <div><h1 id="libTitle" title="Tap to change your name">Library</h1><div class="sub" id="libSub"></div></div>
     <div class="lib-actions">
+      <button class="pill lib-discover" data-catalog-open>Discover</button>
       <button class="icon-btn" id="libMore" aria-label="More" title="More"><svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg></button>
       <button class="pill" id="importBtn" aria-label="Import a book"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Import</button>
     </div>
@@ -624,6 +642,7 @@ body.is-pdf #dictFloat{display:none!important}
     <p>Import an EPUB, PDF, TXT or HTML file from your device. Books stay on this device only.</p>
     <div class="actions">
       <button class="pill" id="emptyImport">Import a book</button>
+      <button class="pill ghost" data-catalog-open>Discover public-domain books</button>
       <button class="pill ghost" id="sampleBtn">Open the sample book</button>
     </div>
   </div>
@@ -766,6 +785,17 @@ body.is-pdf #dictFloat{display:none!important}
   <div class="grab"></div>
   <div class="sheet-head"><h2>Dictionary</h2><button class="small-btn dict-vocab-open" id="dictVocabOpen" data-vocab-action="open">Vocabulary</button><button class="icon-btn" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 18 6 6"/></svg></button></div>
   <div class="sheet-body" id="dictBody"></div>
+</div>
+
+<div class="sheet catalog-sheet" id="catalogSheet" role="dialog" aria-label="Public-domain book catalog">
+  <div class="grab"></div>
+  <div class="sheet-head"><h2>Discover books</h2><button class="icon-btn" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 18 6 6"/></svg></button></div>
+  <div class="sheet-body">
+    <form id="catalogForm"><input id="catalogSearch" type="search" maxlength="120" placeholder="Search title or author" autocomplete="off" enterkeyhint="search" aria-label="Search public-domain books"><button class="pill" type="submit">Search</button></form>
+    <p id="catalogStatus" role="status" aria-live="polite"></p>
+    <div id="catalogResults"><p class="hint catalog-empty">Search Project Gutenberg's public-domain catalog.</p></div>
+    <p class="catalog-note">Books are provided by Project Gutenberg and filtered to works marked public domain in the United States. Downloads open on Project Gutenberg; use Import afterward to add the EPUB here. Copyright rules differ by country; check your local rights before downloading.</p>
+  </div>
 </div>
 
 <div class="sheet" id="vocabSheet" role="dialog" aria-label="Vocabulary notebook">
@@ -5485,6 +5515,8 @@ async function init() {
 }
 window.addEventListener('unhandledrejection', e => { console.error(e.reason); if (e.reason instanceof UserError) toast(e.reason.message, 3000); });
 document.addEventListener('vocabulary:open', () => openSheet('vocabSheet'));
+document.addEventListener('catalog:open', () => openSheet('catalogSheet'));
+document.addEventListener('catalog:library-updated', () => { void renderLibrary(); });
 // Expose a tiny debug/test handle
 window.__reader = { App, S, HL, lookupWord, importFile, openBook, setSetting, Sel, CONFIG, TTS, A, setAudio, AudioUI, Dict, AI, SpeedReader, AutoScroll, PdfConvert, Ambient, gradientTheme, setGrad, globalPages };
 init();
@@ -5492,5 +5524,6 @@ init();
 </script>
 <script type="module" src="extensions.js"></script>
 <script type="module" src="build/vocabulary.js"></script>
+<script type="module" src="build/book-catalog.js"></script>
 </body>
 </html>

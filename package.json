@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "tsc --project tsconfig.json",
     "build:vocabulary": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
-    "test": "npm run build:vocabulary && node --test vocabulary.test.js"
+    "test": "npm run build && node --test vocabulary.test.js book-catalog.test.js"
   },
   "devDependencies": {
     "typescript": "^5.8.3"
