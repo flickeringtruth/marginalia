@@ -2917,7 +2917,7 @@ function bindStage() {
    ★ AUDIO / READ ALOUD (TTS) ★
    Browser-native SpeechSynthesis only: free system/browser voices, no keys.
    - Text model: chapter text is split into paragraphs → sentences → safe
-     chunks (≤ ~170 chars). Offsets use the same chapter.textContent offsets
+     chunks (device ≤ ~170 chars; Edge up to ~1100). Offsets use the same chapter.textContent offsets
      as highlights, so audio positions map 1:1 onto the rendered DOM.
    - Queue: one SpeechSynthesisUtterance per chunk; onend starts the next.
      Pause = cancel + resume from the current word (avoids pause()/resume()
@@ -3344,41 +3344,69 @@ const TTS = {
     if (cacheId) {
       try {
         const cached = await TTSAudioCache.get(cacheId);
-        if (cached && cached.text === text && cached.voice === voice) { this.logEv('edge-cache-hit', cacheId); return cached.audio; }
+        if (cached && cached.text === text && cached.voice === voice) { this.logEv('edge-cache-hit', cacheId); return { blob: cached.audio, boundaries: cached.boundaries || [] }; }
       } catch (e) { this.logEv('edge-cache-read-failed', e.message); }
     }
     const endpoint = edgeProxyUrl();
     if (!endpoint) throw new Error('Add your Edge TTS Worker URL in audio settings');
-    for (let attempt = 0; ; attempt++) {
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, rate: 1 }), signal });
+    let rateLimitRetries = 0, transientRetries = 0;
+    for (;;) {
+      let response;
+      try {
+        response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice, rate: 1 }), signal });
+      } catch (error) {
+        if (signal && signal.aborted || error.name === 'AbortError' || transientRetries >= 2) throw error;
+        const delay = 500 * (2 ** transientRetries++) + Math.floor(Math.random() * 250);
+        this.logEv('edge-retry', 'network retry ' + transientRetries + ' in ' + delay + 'ms');
+        await this.waitEdgeRetry(delay, signal);
+        continue;
+      }
       if (response.ok) {
-        const audio = await response.blob();
+        const blob = await response.blob();
+        let boundaries = [];
+        const boundaryHeader = response.headers.get('X-TTS-Word-Boundaries');
+        if (boundaryHeader) {
+          try {
+            const parsed = JSON.parse(decodeURIComponent(boundaryHeader));
+            if (Array.isArray(parsed)) boundaries = parsed.filter(item =>
+              item && Number.isFinite(item.offset) && typeof item.text === 'string' && item.text.length
+            );
+          } catch (e) { this.logEv('edge-boundaries-invalid', e.message); }
+        }
         if (cacheId) {
-          try { await TTSAudioCache.put({ id: cacheId, bookId: cacheBookId, text, voice, audio, size: audio.size, lastUsed: Date.now() }); }
+          try { await TTSAudioCache.put({ id: cacheId, bookId: cacheBookId, text, voice, audio: blob, boundaries, size: blob.size, lastUsed: Date.now() }); }
           catch (e) { this.logEv('edge-cache-write-failed', e.message); }
         }
-        return audio;
+        return { blob, boundaries };
       }
       let message = 'HTTP ' + response.status;
       try { const data = await response.json(); if (data.error) message = data.error; } catch (e) { /* ignore */ }
       const rateLimited = response.status === 429 || /\bHTTP\s*429\b/i.test(message);
-      if (!rateLimited || attempt >= 3) {
+      const transient = response.status === 502 || response.status === 503 || response.status === 504;
+      if (rateLimited && rateLimitRetries >= 3 || !rateLimited && (!transient || transientRetries >= 2)) {
         const error = new Error(message); error.status = response.status; error.rateLimited = rateLimited; throw error;
       }
-      const retryAfter = response.headers.get('Retry-After');
-      const seconds = Number(retryAfter), dateDelay = Date.parse(retryAfter) - Date.now();
-      let delay = retryAfter ? (Number.isFinite(seconds) ? seconds * 1000 : dateDelay) : 10000 * (2 ** attempt);
-      if (!Number.isFinite(delay) || delay < 0) delay = 10000 * (2 ** attempt);
-      delay = clamp(delay, 1000, 300000);
-      this.logEv('edge-rate-limit', 'retry ' + (attempt + 1) + ' in ' + Math.ceil(delay / 1000) + 's');
-      toast('EdgeTTS is rate-limited; retrying shortly', 2500);
+      let delay;
+      if (rateLimited) {
+        const retryAfter = response.headers.get('Retry-After');
+        const seconds = Number(retryAfter), dateDelay = Date.parse(retryAfter) - Date.now();
+        delay = retryAfter ? (Number.isFinite(seconds) ? seconds * 1000 : dateDelay) : 10000 * (2 ** rateLimitRetries);
+        if (!Number.isFinite(delay) || delay < 0) delay = 10000 * (2 ** rateLimitRetries);
+        delay = clamp(delay, 1000, 300000);
+        rateLimitRetries++;
+        this.logEv('edge-rate-limit', 'retry ' + rateLimitRetries + ' in ' + Math.ceil(delay / 1000) + 's');
+        toast('EdgeTTS is rate-limited; retrying shortly', 2500);
+      } else {
+        delay = 500 * (2 ** transientRetries++) + Math.floor(Math.random() * 250);
+        this.logEv('edge-retry', 'HTTP ' + response.status + ' retry ' + transientRetries + ' in ' + delay + 'ms');
+      }
       await this.waitEdgeRetry(delay, signal);
     }
   },
   requestEdgeChunk(i, from) {
     const c = this.model.chunks[i], text = this.model.text.slice(from, c.e).replace(/\s+/g, ' ');
     const controller = new AbortController();
-    const promise = this.edgeAudio(text, controller.signal).then(blob => ({ blob }), error => ({ error }));
+    const promise = this.edgeAudio(text, controller.signal).then(result => result, error => ({ error }));
     return { i, from, text, controller, promise };
   },
   prefetchEdgeChunk(i, tk) {
@@ -3450,6 +3478,14 @@ const TTS = {
       if (tk !== this.token) return;
       if (result.error) throw result.error;
       const blob = result.blob, text = request.text;
+      const boundaries = [];
+      let searchFrom = 0;
+      for (const boundary of result.boundaries || []) {
+        const at = text.indexOf(boundary.text, searchFrom);
+        if (at < 0) continue;
+        boundaries.push({ time: boundary.offset / 10000000, position: from + at });
+        searchFrom = at + boundary.text.length;
+      }
       const a = this.audioEl || (this.audioEl = new window.Audio());
       if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
       this.audioUrl = URL.createObjectURL(blob);
@@ -3463,7 +3499,17 @@ const TTS = {
         this.prefetchEdgeChunk(i + 1, tk);
         const len = text.length, tick = () => {
           if (tk !== this.token || this.state !== 'playing') return;
-          const d = a.duration; if (d && isFinite(d)) { const off = wordStartAtOrBefore(m.text, from + Math.floor(clamp(a.currentTime / d, 0, 0.999) * len), from); if (off > this.pos) this.setPos(off, 'tick'); }
+          let estimated = from + Math.floor(len * (a.currentTime / (a.duration || Infinity)));
+          if (boundaries.length) {
+            let left = 0, right = boundaries.length - 1, match = -1;
+            while (left <= right) {
+              const mid = (left + right) >> 1;
+              if (boundaries[mid].time <= a.currentTime) { match = mid; left = mid + 1; } else right = mid - 1;
+            }
+            if (match >= 0) estimated = boundaries[match].position;
+          }
+          const off = wordStartAtOrBefore(m.text, estimated, from);
+          if (off > this.pos) this.setPos(off, 'tick');
           this.onlineRaf = requestAnimationFrame(tick);
         };
         tick();
@@ -4001,7 +4047,8 @@ function previewVoice() {
   const sample = /^nl/i.test(bookLang()) ? 'Zo klinkt deze stem bij het voorlezen. Hoor je het verschil?' : 'This is how this voice sounds when reading your book. Can you hear the difference?';
   if (A.engine === 'edge') {
     if (!edgeProxyUrl()) { toast('Enter your EdgeTTS Worker URL below'); return; }
-    TTS.edgeAudio(sample, undefined, null).then(blob => {
+    TTS.edgeAudio(sample, undefined, null).then(result => {
+      const blob = result.blob;
       const url = URL.createObjectURL(blob), a = new window.Audio(url);
       a.volume = clamp(A.volume / 100, 0, 1);
       const cleanup = () => URL.revokeObjectURL(url);

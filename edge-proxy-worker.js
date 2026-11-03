@@ -127,36 +127,48 @@ const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&
 const lines = o => Object.keys(o).map(k => k + ': ' + o[k] + '\r\n').join('');
 
 /* Opens a WebSocket over a raw TLS socket and returns { send, next, close }. */
-async function openSocket(url, headers) {
+async function openSocket(url, headers, signal) {
+  if (signal && signal.aborted) throw new DOMException('The request was aborted', 'AbortError');
   const socket = connect({ hostname: HOST, port: 443 }, { secureTransport: 'on' });
   const reader = socket.readable.getReader(), writer = socket.writable.getWriter();
+  const closeSocket = () => { socket.close().catch(() => {}); };
+  const onAbort = () => closeSocket();
+  if (signal) signal.addEventListener('abort', onAbort, { once: true });
   const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
   const req = ['GET ' + url + ' HTTP/1.1', 'Host: ' + HOST, 'Upgrade: websocket', 'Connection: Upgrade',
     'Sec-WebSocket-Key: ' + key, ...Object.entries(headers).map(([k, v]) => k + ': ' + v)];
-  await writer.write(enc.encode(req.join('\r\n') + '\r\n\r\n'));
-
   let buf = new Uint8Array(0), end = -1;
-  while ((end = findHeaderEnd(buf)) < 0) {
-    const { value, done } = await reader.read();
-    if (done) throw new Error('the voice service closed the connection during the handshake');
-    buf = concat(buf, value);
-  }
-  const responseHeaders = dec.decode(buf.slice(0, end));
-  const status = Number(responseHeaders.split('\r\n')[0].split(' ')[1]);
-  if (status !== 101) {
-    const retryHeader = responseHeaders.split('\r\n').find(line => /^retry-after:/i.test(line));
-    socket.close().catch(() => {});
-    const error = new Error('the voice service refused the connection (HTTP ' + status + ')');
-    error.status = status;
-    if (retryHeader) error.retryAfter = retryHeader.slice(retryHeader.indexOf(':') + 1).trim();
+  try {
+    await writer.write(enc.encode(req.join('\r\n') + '\r\n\r\n'));
+    while ((end = findHeaderEnd(buf)) < 0) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error('the voice service closed the connection during the handshake');
+      buf = concat(buf, value);
+    }
+    const responseHeaders = dec.decode(buf.slice(0, end));
+    const status = Number(responseHeaders.split('\r\n')[0].split(' ')[1]);
+    if (status !== 101) {
+      const retryHeader = responseHeaders.split('\r\n').find(line => /^retry-after:/i.test(line));
+      const error = new Error('the voice service refused the connection (HTTP ' + status + ')');
+      error.status = status;
+      if (retryHeader) error.retryAfter = retryHeader.slice(retryHeader.indexOf(':') + 1).trim();
+      throw error;
+    }
+    buf = buf.slice(end + 4);
+  } catch (error) {
+    if (signal) signal.removeEventListener('abort', onAbort);
+    closeSocket();
     throw error;
   }
-  buf = buf.slice(end + 4);
 
   let frags = null, fragOp = 0, closed = false;
   return {
     send: text => writer.write(encodeFrame(0x1, enc.encode(text))),
-    close: () => { closed = true; socket.close().catch(() => {}); },
+    close: () => {
+      closed = true;
+      if (signal) signal.removeEventListener('abort', onAbort);
+      closeSocket();
+    },
     async next() { // resolves with { text: boolean, data: Uint8Array } or null when the socket ends
       for (;;) {
         const f = parseFrame(buf);
@@ -179,7 +191,7 @@ async function openSocket(url, headers) {
   };
 }
 
-async function synthesize(text, voice, rate) {
+async function synthesize(text, voice, rate, signal) {
   const id = rand(16);
   const gec = await generateSecMsGec();
   const major = CHROMIUM_FULL_VERSION.split('.')[0];
@@ -190,7 +202,7 @@ async function synthesize(text, voice, rate) {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/' + major + '.0.0.0 Safari/537.36 Edg/' + major + '.0.0.0',
     'Accept-Language': 'en-US,en;q=0.9', Pragma: 'no-cache', 'Cache-Control': 'no-cache',
     Origin: 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold', 'Sec-WebSocket-Version': '13', Cookie: 'muid=' + rand(16) + ';'
-  });
+  }, signal);
   try {
     const date = new Date().toString();
     await ws.send(lines({ 'Content-Type': 'application/json; charset=utf-8', Path: 'speech.config', 'X-Timestamp': date }) + '\r\n' +
@@ -250,10 +262,23 @@ export default {
     if (!text || text.length > MAX_CHARS) return json({ error: 'text must be 1 to ' + MAX_CHARS + ' characters' }, 400);
     if (!/^[A-Za-z0-9-]{5,64}Neural$/.test(voice)) return json({ error: 'unknown voice name' }, 400);
 
+    const controller = new AbortController();
+    const abortRequest = () => controller.abort(request.signal.reason);
+    request.signal.addEventListener('abort', abortRequest, { once: true });
+    if (request.signal.aborted) abortRequest();
+    let timeout;
     try {
+      const timeoutPromise = new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          const error = new Error('the voice service took too long');
+          error.status = 504;
+          reject(error);
+        }, TIMEOUT_MS);
+      });
       const { audio, boundaries } = await Promise.race([
-        synthesize(text, voice, rate),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('the voice service took too long')), TIMEOUT_MS))
+        synthesize(text, voice, rate, controller.signal),
+        timeoutPromise
       ]);
       const boundaryHeader = encodeURIComponent(JSON.stringify(boundaries));
       const headers = { ...cors, 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' };
@@ -263,9 +288,13 @@ export default {
       const status = Number(e && e.status);
       const headers = status === 429 && e.retryAfter ? { 'Retry-After': e.retryAfter } : {};
       return new Response(JSON.stringify({ error: String((e && e.message) || e) }), {
-        status: status === 429 ? 429 : 502,
+        status: status === 429 ? 429 : status === 504 ? 504 : 502,
         headers: { ...cors, ...headers, 'Content-Type': 'application/json' }
       });
+    } finally {
+      clearTimeout(timeout);
+      request.signal.removeEventListener('abort', abortRequest);
+      controller.abort();
     }
   }
 };

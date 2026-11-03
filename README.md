@@ -15,3 +15,7 @@ npm test
 ```
 
 Commit the generated JavaScript under `build/` with TypeScript changes so the static app can load it without a build step at runtime. The catalog uses Project Gutenberg's OPDS feed and verifies that each book is marked public domain in the United States before showing its EPUB download link; copyright status can differ in other countries.
+
+## Edge read-aloud
+
+Edge read-aloud uses the configured Cloudflare Worker to request Microsoft Edge TTS audio. Audio is cached per book in IndexedDB, the next sentence is prefetched during playback, and word-boundary metadata is used for highlighting when available. Transient network and Worker failures are retried; Microsoft can still rate-limit this unofficial service.
