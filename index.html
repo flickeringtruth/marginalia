@@ -2930,7 +2930,7 @@ function bindStage() {
    - Seeking is synthetic: progress fraction → character offset → rebuilt queue.
    ===================================================================== */
 const TTS_OK = typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function';
-const A_DEFAULTS = { voiceURI: '', preset: 'deep', rate: 0.95, pitch: 0.85, volume: 100, hlMode: 'word', trail: 'two', hlColor: 'orange',
+const A_DEFAULTS = { voiceURI: '', preset: 'deep', rate: 1, pitch: 0.85, volume: 100, hlMode: 'word', trail: 'two', hlColor: 'orange',
   autoScroll: true, autoNext: true, startFrom: 'chapter', sleep: 0,
   engine: 'device',          // 'device' (SpeechSynthesis) | 'voicerss' (online, free key)
   vrssKey: '', vrssVoice: '', ssml: false,
@@ -2940,11 +2940,30 @@ const A_DEFAULTS = { voiceURI: '', preset: 'deep', rate: 0.95, pitch: 0.85, volu
 let A = Object.assign({}, A_DEFAULTS, LS.get('reader.audio', {}));
 const saveAudioSettings = debounce(() => LS.set('reader.audio', A), 250);
 const AHL_COLORS = { orange: '255,149,0', teal: '48,176,199', graphite: '142,142,147' }; // none of these match manual highlight colors
-const AUDIO_PRESETS = { auto: { rate: 1, pitch: 1 }, deep: { rate: 0.95, pitch: 0.85 }, natural: { rate: 1, pitch: 1 }, narrator: { rate: 0.9, pitch: 0.95 }, story: { rate: 0.85, pitch: 0.8, cadence: true } };
+const AUDIO_PRESETS = { auto: { rate: 1, pitch: 1 }, deep: { rate: 1, pitch: 0.85 }, natural: { rate: 1, pitch: 1 }, narrator: { rate: 0.9, pitch: 0.95 }, story: { rate: 0.85, pitch: 0.8, cadence: true } };
 /* VoiceRSS voices per language (free plan). Deep/male voices first. */
 const VRSS_VOICES = { 'en-us': ['John', 'Mike', 'Linda', 'Amy', 'Mary'], 'en-gb': ['Harry', 'Alice', 'Nancy', 'Lily'], 'en-au': ['Jack', 'Zoe', 'Isla', 'Evie'], 'nl-nl': ['Daan', 'Bram', 'Lotte'], 'de-de': ['Jonas', 'Hanna', 'Lina'], 'fr-fr': ['Axel', 'Bette', 'Iva', 'Zola'], 'es-es': ['Diego', 'Camila', 'Sofia'] };
 function vrssLang() { const l = bookLang().toLowerCase().replace('_', '-'); if (VRSS_VOICES[l]) return l; const b = l.split('-')[0]; return { en: 'en-us', nl: 'nl-nl', de: 'de-de', fr: 'fr-fr', es: 'es-es', it: 'it-it', pt: 'pt-pt', sv: 'sv-se', da: 'da-dk', nb: 'nb-no', pl: 'pl-pl' }[b] || 'en-us'; }
-const EDGE_VOICES = ['en-US-AriaNeural', 'en-US-AvaNeural', 'en-US-AndrewNeural', 'en-US-GuyNeural', 'en-US-JennyNeural', 'en-GB-SoniaNeural', 'en-GB-RyanNeural', 'nl-NL-ColetteNeural', 'nl-NL-FennaNeural', 'nl-NL-MaartenNeural'];
+const EDGE_VOICES = [
+  'en-US-AnaNeural', 'en-US-AndrewNeural', 'en-US-AndrewMultilingualNeural', 'en-US-AriaNeural', 'en-US-AvaNeural',
+  'en-US-AvaMultilingualNeural', 'en-US-BrianNeural', 'en-US-BrianMultilingualNeural', 'en-US-ChristopherNeural',
+  'en-US-EmmaNeural', 'en-US-EmmaMultilingualNeural', 'en-US-EricNeural', 'en-US-GuyNeural', 'en-US-JennyNeural',
+  'en-US-MichelleNeural', 'en-US-RogerNeural', 'en-US-SteffanNeural',
+  'en-GB-LibbyNeural', 'en-GB-MaisieNeural', 'en-GB-RyanNeural', 'en-GB-SoniaNeural', 'en-GB-ThomasNeural',
+  'en-AU-NatashaNeural', 'en-AU-WilliamNeural', 'en-CA-ClaraNeural', 'en-CA-LiamNeural', 'en-IN-NeerjaNeural',
+  'en-IN-PrabhatNeural', 'en-IE-ConnorNeural', 'en-IE-EmilyNeural', 'en-NZ-MitchellNeural', 'en-NZ-MollyNeural',
+  'nl-NL-ColetteNeural', 'nl-NL-FennaNeural', 'nl-NL-MaartenNeural',
+  'de-DE-AmalaNeural', 'de-DE-ConradNeural', 'de-DE-KatjaNeural', 'de-DE-KillianNeural',
+  'fr-FR-DeniseNeural', 'fr-FR-EloiseNeural', 'fr-FR-HenriNeural', 'fr-FR-RemyMultilingualNeural',
+  'es-ES-AlvaroNeural', 'es-ES-ElviraNeural', 'es-ES-XimenaNeural',
+  'it-IT-DiegoNeural', 'it-IT-ElsaNeural', 'it-IT-GiuseppeMultilingualNeural', 'it-IT-IsabellaNeural',
+  'pt-BR-AntonioNeural', 'pt-BR-FranciscaNeural', 'ja-JP-KeitaNeural', 'ja-JP-NanamiNeural',
+  'ko-KR-HyunsuMultilingualNeural', 'ko-KR-InJoonNeural', 'ko-KR-SunHiNeural',
+  'zh-CN-XiaoxiaoNeural', 'zh-CN-YunxiNeural', 'zh-CN-YunjianNeural', 'zh-CN-XiaoyiNeural',
+  'ar-SA-HamedNeural', 'ar-SA-ZariyahNeural', 'hi-IN-MadhurNeural', 'hi-IN-SwaraNeural',
+  'sv-SE-MattiasNeural', 'sv-SE-SofieNeural', 'da-DK-ChristelNeural', 'da-DK-JeppeNeural',
+  'pl-PL-MarekNeural', 'pl-PL-ZofiaNeural', 'ru-RU-DmitryNeural', 'ru-RU-SvetlanaNeural'
+];
 function edgeProxyUrl() { try { return (A.edgeProxy || localStorage.getItem('marginalia.voiceProxy') || '').trim().replace(/\/+$/, ''); } catch (e) { return (A.edgeProxy || '').trim().replace(/\/+$/, ''); } }
 const MALE_RE = /\b(male|man|google uk english male|microsoft david|daniel|alex|fred|aaron|arthur|rishi|oliver|thomas|gordon|lee|ralph|reed|rocko|eddy|grandpa|guy|davis|ryan|christopher|eric|brian|andrew|roger|william|tony|mark|david|george|james|xander|frank|maarten|arjan|jacques|paul|nathan|evan|jorge|diego|luca|hans|markus|stefan|tom|liam|noah|matthew|steffan|connor|william)\b/;
 const NOVELTY_RE = /compact|espeak|robot|novelty|bells|bubbles|zarvox|whisper|trinoids|bad news|good news|jester|organ|cellos|boing|hysterical|albert|bahh|superstar|wobble|deranged|pipe/;
@@ -3349,7 +3368,7 @@ const TTS = {
     }
     const endpoint = edgeProxyUrl();
     if (!endpoint) throw new Error('Add your Edge TTS Worker URL in audio settings');
-    let rateLimitRetries = 0, transientRetries = 0;
+    let transientRetries = 0;
     for (;;) {
       let response;
       try {
@@ -3383,23 +3402,11 @@ const TTS = {
       try { const data = await response.json(); if (data.error) message = data.error; } catch (e) { /* ignore */ }
       const rateLimited = response.status === 429 || /\bHTTP\s*429\b/i.test(message);
       const transient = response.status === 502 || response.status === 503 || response.status === 504;
-      if (rateLimited && rateLimitRetries >= 3 || !rateLimited && (!transient || transientRetries >= 2)) {
+      if (rateLimited || !transient || transientRetries >= 2) {
         const error = new Error(message); error.status = response.status; error.rateLimited = rateLimited; throw error;
       }
-      let delay;
-      if (rateLimited) {
-        const retryAfter = response.headers.get('Retry-After');
-        const seconds = Number(retryAfter), dateDelay = Date.parse(retryAfter) - Date.now();
-        delay = retryAfter ? (Number.isFinite(seconds) ? seconds * 1000 : dateDelay) : 10000 * (2 ** rateLimitRetries);
-        if (!Number.isFinite(delay) || delay < 0) delay = 10000 * (2 ** rateLimitRetries);
-        delay = clamp(delay, 1000, 300000);
-        rateLimitRetries++;
-        this.logEv('edge-rate-limit', 'retry ' + rateLimitRetries + ' in ' + Math.ceil(delay / 1000) + 's');
-        toast('EdgeTTS is rate-limited; retrying shortly', 2500);
-      } else {
-        delay = 500 * (2 ** transientRetries++) + Math.floor(Math.random() * 250);
-        this.logEv('edge-retry', 'HTTP ' + response.status + ' retry ' + transientRetries + ' in ' + delay + 'ms');
-      }
+      const delay = 500 * (2 ** transientRetries++) + Math.floor(Math.random() * 250);
+      this.logEv('edge-retry', 'HTTP ' + response.status + ' retry ' + transientRetries + ' in ' + delay + 'ms');
       await this.waitEdgeRetry(delay, signal);
     }
   },
@@ -3527,7 +3534,13 @@ const TTS = {
   },
   edgeError(i, from, tk, message, rateLimited) {
     if (tk !== this.token) return;
-    if (rateLimited) { this.logEv('edge-rate-limit', 'retries exhausted'); this.pause(); toast('EdgeTTS is still rate-limited. Reading is paused; press Play to retry.', 5000); return; }
+    if (rateLimited) {
+      this.logEv('edge-rate-limit', 'falling back to device speech');
+      this.stopOnline(); this.onlineDown = true;
+      toast('EdgeTTS is rate-limited — continuing with device voices', 4200);
+      this.speakFrom(this.ch, this.pos || from);
+      return;
+    }
     this.logEv('edge-error', message); this.stopOnline(); this.onlineDown = true;
     toast('EdgeTTS failed (' + message + ') — using device voices', 4200);
     this.speakFrom(this.ch, this.pos || from);
@@ -3949,7 +3962,9 @@ function setAudio(key, val) {
   if (A[key] === val) { syncAudioSettingsUI(); return; }
   A[key] = val; saveAudioSettings();
   if (key === 'voiceURI') { TTS.forceDefault = false; TTS.forceLocal = false; TTS.startFails = 0; }
-  if (['rate', 'pitch', 'volume', 'voiceURI'].includes(key)) TTS.restartSoon();
+  if (key === 'rate' && TTS.online() && TTS.audioEl && TTS.state === 'playing') {
+    TTS.audioEl.playbackRate = clamp(A.rate, 0.5, 2.5);
+  } else if (['rate', 'pitch', 'volume', 'voiceURI'].includes(key)) TTS.restartSoon();
   if (key === 'hlMode' || key === 'trail') { TTS.trail = []; TTS.unit = null; TTS.word = null; TTS.sylTimers.forEach(clearTimeout); if (TTS.model) { TTS.updateUnit('mode'); TTS.renderHL(); } }
   if (key === 'hlColor') applyAudioColor();
   if (key === 'engine' || key === 'cadence') { TTS.onlineDown = false; TTS.ssmlDown = false; TTS.vrssVoiceDown = false; if (key === 'engine' && val === 'voicerss' && !(A.vrssKey || CONFIG.tts.voicerssKey)) toast('Paste your free VoiceRSS key below'); if (key === 'engine' && val === 'edge' && !edgeProxyUrl()) toast('Enter your EdgeTTS Worker URL below'); TTS.restartSoon(); }

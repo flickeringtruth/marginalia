@@ -18,4 +18,4 @@ Commit the generated JavaScript under `build/` with TypeScript changes so the st
 
 ## Edge read-aloud
 
-Edge read-aloud uses the configured Cloudflare Worker to request Microsoft Edge TTS audio. Audio is cached per book in IndexedDB, the next sentence is prefetched during playback, and word-boundary metadata is used for highlighting when available. Transient network and Worker failures are retried; Microsoft can still rate-limit this unofficial service.
+Edge read-aloud uses the configured Cloudflare Worker to request Microsoft Edge TTS audio. Audio is cached per book in IndexedDB, the next sentence is prefetched during playback, and word-boundary metadata is used for highlighting when available. Transient network and Worker failures are retried; if Microsoft rate-limits Edge requests, Marginalia falls back to device speech to avoid stalling. Microsoft can still rate-limit this unofficial service.
