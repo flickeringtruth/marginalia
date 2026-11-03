@@ -437,7 +437,16 @@ body.audio-popup-open .ab-full{left:50%;right:auto;top:50%;bottom:auto;width:min
   transform:translate(-50%,-50%);opacity:1;pointer-events:auto;z-index:1}
 body.audio-popup-open #abMini{opacity:0;pointer-events:none}
 body.audio-popup-open #abSpeedDown,body.audio-popup-open #abRate,body.audio-popup-open #abSpeedUp,body.audio-popup-open #abSettings{display:none}
+body.audio-popup-open #abStop{display:none}
 .ab-popup-snippet,.ab-popup-quick,.ab-popup-close{display:none}
+.ab-popup-book{display:none;width:38px;height:52px;object-fit:cover;border-radius:6px;flex:none;background:var(--card)}
+body.audio-popup-open .ab-popup-book{display:block}
+body.audio-popup-open .ab-popup-book-fallback{display:flex;align-items:center;justify-content:center;color:#fff;font-family:Georgia,serif;font-size:23px;font-weight:600}
+body.audio-popup-open .ab-title{padding-left:4px}
+body.audio-popup-open .ab-title b{font-size:15px}
+body.audio-popup-open .ab-title span{font-size:12px}
+body.audio-popup-open .ab-text-size{display:flex}
+.ab-text-size{display:none;width:38px;height:40px;border-radius:10px;background:var(--card);font-size:14px;font-weight:600;align-items:center;justify-content:center;flex:none}
 body.audio-popup-open .ab-popup-snippet{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;min-height:74px;margin:10px 2px 14px;padding:12px 14px;border-radius:14px;background:var(--card);
   text-align:center;font-size:15px;font-weight:600;line-height:1.35;color:var(--fg)}
 body.audio-popup-open .ab-popup-quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}
@@ -689,7 +698,11 @@ body.is-pdf #dictFloat{display:none!important}
     <div class="ab-popup-backdrop" id="abPopupBackdrop"></div>
     <div class="ab-full" role="dialog" aria-modal="true" aria-label="Read aloud controls">
       <div class="ab-top">
+        <img class="ab-popup-book hidden" id="abPopupBookCover" alt="">
+        <div class="ab-popup-book ab-popup-book-fallback hidden" id="abPopupBookFallback" aria-hidden="true"></div>
         <div class="ab-title"><b id="abTitle"></b><span id="abSub"></span></div>
+        <button class="ab-text-size" id="abTextSmaller" aria-label="Decrease book text size">A−</button>
+        <button class="ab-text-size" id="abTextLarger" aria-label="Increase book text size">A+</button>
         <button class="ab-mini" id="abSpeedDown" aria-label="Slower" title="Slower">−</button>
         <button class="ab-rate" id="abRate" aria-label="Reset speed to 1×" title="Speed (tap for 1×)">1×</button>
         <button class="ab-mini" id="abSpeedUp" aria-label="Faster" title="Faster">+</button>
@@ -4055,6 +4068,8 @@ const ICON = {
 };
 const AudioUI = {
   dragging: false,
+  coverBookId: '',
+  coverUrl: '',
   sync() {
     const st = TTS.state, on = st !== 'idle';
     $('#audioBar').classList.toggle('hidden', !on);
@@ -4070,8 +4085,36 @@ const AudioUI = {
       A.engine === 'voicerss' ? A.vrssVoice || 'VoiceRSS' : (TTS.voice() && TTS.voice().name) || 'Device voice';
     $('#abPopupVoiceName').textContent = voice;
     $('#abTitle').textContent = App.book ? App.book.meta.title : '';
+    this.syncBookCover();
     this.sleepLabel(); this.progress();
     if (Sheets.current === 'settingsSheet') syncAudioSettingsUI();
+  },
+  syncBookCover() {
+    const meta = App.book && App.book.meta;
+    const id = meta ? meta.id : '';
+    const cover = $('#abPopupBookCover'), fallback = $('#abPopupBookFallback');
+    if (this.coverBookId !== id) {
+      if (this.coverUrl) URL.revokeObjectURL(this.coverUrl);
+      this.coverUrl = '';
+      this.coverBookId = id;
+      if (meta && meta.coverBuf) {
+        this.coverUrl = URL.createObjectURL(new Blob([meta.coverBuf], { type: meta.coverType || 'image/jpeg' }));
+      }
+    }
+    if (this.coverUrl) {
+      cover.src = this.coverUrl;
+      cover.classList.remove('hidden');
+      fallback.classList.add('hidden');
+    } else if (meta) {
+      const hue = parseInt(hashStr(meta.title || String(meta.id)), 36) % 360;
+      fallback.style.background = `linear-gradient(155deg,hsl(${hue},42%,42%),hsl(${(hue + 36) % 360},48%,24%))`;
+      fallback.textContent = (meta.title || '?').trim().slice(0, 1).toUpperCase();
+      fallback.classList.remove('hidden');
+      cover.classList.add('hidden');
+    } else {
+      cover.classList.add('hidden');
+      fallback.classList.add('hidden');
+    }
   },
   sleepLabel() {
     const sub = $('#abSub');
@@ -4363,6 +4406,8 @@ function bindAudio() {
     TTS.setRate(next);
   });
   $('#abPopupVoice').addEventListener('click', () => openSettings('audio'));
+  $('#abTextSmaller').addEventListener('click', () => setSetting('fontSize', Math.max(12, S.fontSize - 1)));
+  $('#abTextLarger').addEventListener('click', () => setSetting('fontSize', Math.min(36, S.fontSize + 1)));
   $('#abPopupSleep').addEventListener('click', () => {
     const timers = [0, 15, 30, 60], current = timers.findIndex(value => value >= +A.sleep), next = timers[current < 0 ? 0 : (current + 1) % timers.length];
     setAudio('sleep', next);
