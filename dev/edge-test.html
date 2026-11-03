@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Edge voice test (proxy)</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#111;--card:#f2f2f4;--line:#d0d0d5}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--card:#1d1d20;--line:#333}}
+body{margin:0;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif}
+h1{font-size:20px;margin:0 0 8px}
+label{display:block;margin:10px 0 4px;font-size:14px}
+select,button,textarea,input{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:0 12px}
+select,button,input{min-height:44px}
+input,textarea{width:100%;box-sizing:border-box}
+textarea{padding:10px;min-height:70px}
+button{font-weight:600}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px;min-height:160px;overflow-x:auto}
+</style>
+</head>
+<body>
+<h1>Edge voice test (proxy)</h1>
+<p>Sends a sentence to your voice proxy and plays the neural voice it returns. Development use only.</p>
+<label for="proxy">Proxy address (your Cloudflare Worker, ending in .workers.dev)</label>
+<input id="proxy" type="url" placeholder="https://marginalia-voice.yourname.workers.dev" autocapitalize="off" autocomplete="off">
+<label for="voice">Voice</label>
+<select id="voice">
+  <option>en-US-AriaNeural</option><option>en-US-AvaNeural</option><option>en-US-AndrewNeural</option>
+  <option>en-US-GuyNeural</option><option>en-US-JennyNeural</option><option>en-GB-SoniaNeural</option>
+  <option>en-GB-RyanNeural</option><option>nl-NL-ColetteNeural</option><option>nl-NL-FennaNeural</option>
+  <option>nl-NL-MaartenNeural</option>
+</select>
+<label for="text">Text</label>
+<textarea id="text">Hello. This is a test of the neural voice. If you can hear this clearly, the reader can use it.</textarea>
+<p><button id="run">Run test</button> <button id="copy">Copy log</button></p>
+<pre id="log"></pre>
+<script type="module">
+const $ = id => document.getElementById(id), logEl = $('log'), t0 = performance.now();
+const log = s => { logEl.textContent += '[' + ((performance.now() - t0) / 1000).toFixed(1) + 's] ' + s + '\n'; };
+window.addEventListener('error', e => log('✗ error: ' + e.message));
+window.addEventListener('unhandledrejection', e => log('✗ unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
+log('Browser: ' + navigator.userAgent);
+log('Page origin: ' + location.origin);
+try { $('proxy').value = localStorage.getItem('marginalia.voiceProxy') || ''; } catch (e) { /* ignore */ }
+
+$('run').onclick = async () => {
+  const base = $('proxy').value.trim().replace(/\/+$/, '');
+  if (!/^https:\/\/.+/.test(base)) { log('✗ Paste your proxy address first (it starts with https://)'); return; }
+  try { localStorage.setItem('marginalia.voiceProxy', base); } catch (e) { /* ignore */ }
+  $('run').disabled = true;
+  try {
+    log('Checking the proxy is online…');
+    const ping = await fetch(base, { method: 'GET' });
+    log('✓ proxy answered: ' + (await ping.text()).slice(0, 60));
+    log('Asking for speech (' + $('voice').value + ')…');
+    const s = performance.now();
+    const res = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: $('text').value.trim() || 'Hello.', voice: $('voice').value, rate: 1 }) });
+    if (!res.ok) { let m = res.status + ''; try { m += ' ' + (await res.json()).error; } catch (e) { /* ignore */ } throw new Error('the proxy said ' + m); }
+    const blob = await res.blob();
+    log('✓ received ' + Math.round(blob.size / 1024) + ' KB of audio in ' + ((performance.now() - s) / 1000).toFixed(1) + 's');
+    const a = new Audio(URL.createObjectURL(blob));
+    a.onended = () => log('✓ playback finished');
+    a.onerror = () => log('✗ the browser could not play the audio');
+    await a.play();
+    log('▶ playing…');
+  } catch (e) { log('✗ STOPPED: ' + ((e && e.message) || e)); }
+  $('run').disabled = false;
+};
+$('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(logEl.textContent); log('Log copied'); }
+  catch (e) { const r = document.createRange(); r.selectNodeContents(logEl); const s = getSelection(); s.removeAllRanges(); s.addRange(r); log('Select and copy the log by hand'); }
+};
+</script>
+</body>
+</html>
