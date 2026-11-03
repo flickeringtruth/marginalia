@@ -2915,11 +2915,13 @@ function bindStage() {
 
 /* =====================================================================
    ★ AUDIO / READ ALOUD (TTS) ★
-   Browser-native SpeechSynthesis only: free system/browser voices, no keys.
+   Device voices use browser SpeechSynthesis; Edge uses buffered Web Audio.
    - Text model: chapter text is split into paragraphs → sentences → safe
      chunks (device ≤ ~170 chars; Edge up to ~1100). Offsets use the same chapter.textContent offsets
      as highlights, so audio positions map 1:1 onto the rendered DOM.
-   - Queue: one SpeechSynthesisUtterance per chunk; onend starts the next.
+   - Queue: device voices use one SpeechSynthesisUtterance per chunk. Edge
+     audio is decoded, silence-trimmed, pitch-preservingly time-stretched,
+     and scheduled ahead.
      Pause = cancel + resume from the current word (avoids pause()/resume()
      bugs on Chrome/Android). A watchdog restarts stalled queues; Chrome
      desktop network voices get a keep-alive against the ~15 s cut-off.
@@ -3128,12 +3130,110 @@ function rangeRectsFor(map, s, e) {
 const TTS = {
   state: 'idle',            // idle | loading | playing | paused
   model: null, models: new Map(), ch: -1, pos: 0, idx: 0, base: 0, token: 0,
-  utt: null, uttLen: 0, edgeRequest: null, edgePrefetch: null, audioUrl: '', startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
+  utt: null, uttLen: 0, edgeAudioContext: null, edgeRequests: new Map(), edgeReady: new Map(), edgeScheduled: new Map(),
+  edgeScheduleToken: 0, edgeScheduleNext: 0, edgeScheduleEnd: 0, edgePlayingIndex: -1,
+  audioUrl: '', startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
   hasBoundary: new Map(), cps: LS.get('reader.audio.cps', {}),
   ticker: 0, watchdog: 0, sylTimers: [], unit: null, word: null, trail: [],
   els: new Map(), layer: null, driving: 0, userAt: 0, suspended: false, lastScrollH: 0, lastVisCheck: 0,
   sleepEnd: 0, sleepTimer: 0, sleepEoc: false, evlog: [],
   logEv(type, d) { this.evlog.push({ t: Math.round(performance.now()), type, d: d == null ? '' : String(d).slice(0, 80) }); if (this.evlog.length > 60) this.evlog.shift(); },
+  unlockEdgeAudio() {
+    if (A.engine !== 'edge') return;
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      if (!this.edgeAudioContext) this.edgeAudioContext = new AudioContextClass();
+      this.edgeAudioContext.onstatechange = () => {
+        if (this.edgeAudioContext && this.edgeAudioContext.state !== 'running' && this.state === 'playing') {
+          this.edgeAudioContext.resume().catch(err => this.logEv('edge-audio-resume-failed', err.message));
+        }
+      };
+      if (this.edgeAudioContext.state !== 'running') this.edgeAudioContext.resume().catch(err => this.logEv('edge-audio-resume-failed', err.message));
+    } catch (err) { this.logEv('edge-audio-context-failed', err.message); }
+  },
+  async getEdgeAudioContext() {
+    this.unlockEdgeAudio();
+    const ctx = this.edgeAudioContext;
+    if (!ctx) throw new Error('Web Audio is unavailable in this browser');
+    if (ctx.state !== 'running') await ctx.resume();
+    return ctx;
+  },
+  stretchEdgeChannel(input, sampleRate, tempo) {
+    const frame = Math.round(sampleRate * 0.04), overlap = Math.round(sampleRate * 0.008);
+    const seek = Math.round(sampleRate * 0.015);
+    if (tempo === 1 || input.length < frame * 2) return input.slice();
+    const step = frame - overlap, output = new Float32Array(Math.ceil(input.length / tempo) + frame * 2);
+    output.set(input.subarray(0, frame));
+    let outputAt = frame, nominalInputAt = 0;
+    for (;;) {
+      nominalInputAt += step * tempo;
+      const target = Math.round(nominalInputAt);
+      const min = Math.max(0, target - seek), max = Math.min(input.length - frame, target + seek);
+      if (max < min) break;
+      const referenceAt = outputAt - overlap;
+      let bestAt = min, bestCorrelation = -Infinity;
+      for (let candidate = min; candidate <= max; candidate += 2) {
+        let dot = 0, energy = 0;
+        for (let j = 0; j < overlap; j += 4) {
+          const sample = input[candidate + j];
+          dot += output[referenceAt + j] * sample;
+          energy += sample * sample;
+        }
+        const correlation = dot / Math.sqrt(energy + 1e-12);
+        if (correlation > bestCorrelation) { bestCorrelation = correlation; bestAt = candidate; }
+      }
+      for (let j = 0; j < overlap; j++) {
+        const weight = j / overlap, at = referenceAt + j;
+        output[at] = output[at] * (1 - weight) + input[bestAt + j] * weight;
+      }
+      const copyAt = bestAt + overlap, end = Math.min(bestAt + frame, input.length);
+      output.set(input.subarray(copyAt, end), outputAt);
+      outputAt += end - copyAt;
+      if (end >= input.length) break;
+    }
+    return output.slice(0, outputAt);
+  },
+  stretchEdgeBuffer(ctx, input, tempo) {
+    tempo = clamp(tempo, 0.5, 2.5);
+    if (Math.abs(tempo - 1) < 0.001) return input;
+    const channels = [];
+    for (let i = 0; i < input.numberOfChannels; i++) channels.push(this.stretchEdgeChannel(input.getChannelData(i), input.sampleRate, tempo));
+    const length = Math.min(...channels.map(channel => channel.length));
+    const output = ctx.createBuffer(input.numberOfChannels, length, input.sampleRate);
+    channels.forEach((channel, i) => output.copyToChannel(channel.subarray(0, length), i));
+    return output;
+  },
+  trimEdgeSilence(ctx, input) {
+    const sampleRate = input.sampleRate, frame = Math.max(1, Math.round(sampleRate * 0.01));
+    const threshold = 0.001, channelData = Array.from({ length: input.numberOfChannels }, (_, i) => input.getChannelData(i));
+    const isSilentFrame = start => {
+      const end = Math.min(input.length, start + frame);
+      let sum = 0, count = 0;
+      for (const channel of channelData) for (let i = start; i < end; i += 4) { sum += channel[i] * channel[i]; count++; }
+      return count > 0 && Math.sqrt(sum / count) < threshold;
+    };
+    let start = 0, end = input.length;
+    while (start + frame < end && isSilentFrame(start)) start += frame;
+    while (end - frame > start && isSilentFrame(end - frame)) end -= frame;
+    const padding = Math.round(sampleRate * 0.015);
+    start = Math.max(0, start - padding); end = Math.min(input.length, end + padding);
+    if (start === 0 && end === input.length || end - start < sampleRate * 0.1) return { buffer: input, trimStart: 0 };
+    const trimmed = ctx.createBuffer(input.numberOfChannels, end - start, sampleRate);
+    channelData.forEach((channel, i) => trimmed.copyToChannel(channel.subarray(start, end), i));
+    return { buffer: trimmed, trimStart: start / sampleRate };
+  },
+  mapEdgeBoundaries(text, from, boundaries, trimStart) {
+    const mapped = [];
+    let searchFrom = 0;
+    for (const boundary of boundaries || []) {
+      const at = text.indexOf(boundary.text, searchFrom);
+      if (at < 0) continue;
+      mapped.push({ time: Math.max(0, boundary.offset / 10000000 - trimStart), position: from + at });
+      searchFrom = at + boundary.text.length;
+    }
+    return mapped;
+  },
   posKey() { return 'reader.audiopos.' + App.book.id; },
   active() { return this.state !== 'idle'; },
   supported() { return TTS_OK && App.book && App.book.type !== 'pdf'; },
@@ -3184,6 +3284,7 @@ const TTS = {
   play() {
     if (!TTS_OK) { showMessage('Read aloud unavailable', '<p>This browser has no speech engine. Try Safari, Chrome or Edge.</p>'); return; }
     if (!App.book || App.book.type === 'pdf') { toast('Read aloud works with EPUB, TXT and HTML books'); return; }
+    this.unlockEdgeAudio();
     this.migrateVoice();
     if (this.state === 'paused' && this.model) { this.armSleepIfNeeded(); this.speakFrom(this.ch, this.pos); return; }
     let view = { ch: 0, off: 0 }; try { view = App.r.getLoc(); } catch (e) { /* ignore */ }
@@ -3193,7 +3294,7 @@ const TTS = {
     else if (A.startFrom === 'page') off = Math.max(0, view.off || 0);
     this.startSession(); this.speakFrom(ch, off);
   },
-  playFrom(ch, off) { if (!TTS_OK) return this.play(); this.suspended = false; if (!this.active()) this.startSession(); this.speakFrom(ch, off); },
+  playFrom(ch, off) { if (!TTS_OK) return this.play(); this.unlockEdgeAudio(); this.suspended = false; if (!this.active()) this.startSession(); this.speakFrom(ch, off); },
   pause() {
     if (!this.active()) return;
     this.token++; this.clearTimers(); this.cancelSpeech(); this.stopOnline();
@@ -3253,6 +3354,7 @@ const TTS = {
   /* ---- queue ---- */
   speakFrom(ch, off) {
     const tk = ++this.token; this.clearTimers();
+    this.stopOnline();
     let cancelled = this.cancelSpeech();
     if (!cancelled) {
       let busy = false; try { busy = speechSynthesis.speaking || speechSynthesis.pending; } catch (e) { /* ignore */ }
@@ -3417,10 +3519,123 @@ const TTS = {
     return { i, from, text, controller, promise };
   },
   prefetchEdgeChunk(i, tk) {
-    if (tk !== this.token || i >= this.model.chunks.length || this.edgePrefetch) return;
+    if (tk !== this.token || i >= this.model.chunks.length || i > this.idx + 2 ||
+        this.edgeRequests.has(i) || this.edgeReady.has(i) || this.edgeScheduled.has(i)) return;
     const request = this.requestEdgeChunk(i, this.model.chunks[i].s);
-    this.edgePrefetch = request;
+    const entry = { ...request, promise: null };
+    entry.promise = (async () => {
+      const result = await request.promise;
+      if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
+      if (result.error) throw result.error;
+      const ctx = await this.getEdgeAudioContext();
+      const decoded = await ctx.decodeAudioData(await result.blob.arrayBuffer());
+      if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
+      const trimmed = this.trimEdgeSilence(ctx, decoded);
+      const prepared = {
+        i, from: request.from, text: request.text,
+        buffer: this.stretchEdgeBuffer(ctx, trimmed.buffer, A.rate),
+        boundaries: this.mapEdgeBoundaries(request.text, request.from, result.boundaries, trimmed.trimStart)
+      };
+      this.edgeReady.set(i, prepared);
+      this.scheduleEdgeReady(tk);
+      this.prefetchEdgeChunk(i + 2, tk);
+      return prepared;
+    })();
+    this.edgeRequests.set(i, entry);
+    entry.promise.then(
+      () => { if (this.edgeRequests.get(i) === entry) this.edgeRequests.delete(i); },
+      error => {
+        if (this.edgeRequests.get(i) === entry) this.edgeRequests.delete(i);
+        if (tk === this.token && error.name !== 'AbortError') this.logEv('edge-prefetch-failed', i + ': ' + error.message);
+      }
+    );
     this.logEv('edge-prefetch', i);
+    return entry;
+  },
+  scheduleEdgeReady(tk) {
+    if (tk !== this.token || this.edgeScheduleToken !== tk) return;
+    const ctx = this.edgeAudioContext;
+    if (!ctx) return;
+    while (this.edgeReady.has(this.edgeScheduleNext)) {
+      const i = this.edgeScheduleNext, prepared = this.edgeReady.get(i);
+      const source = ctx.createBufferSource(), gain = ctx.createGain();
+      source.buffer = prepared.buffer;
+      gain.gain.value = clamp(A.volume / 100, 0, 1);
+      source.connect(gain); gain.connect(ctx.destination);
+      const startTime = Math.max(this.edgeScheduleEnd, ctx.currentTime + 0.03);
+      const scheduled = { i, source, gain, startTime, duration: prepared.buffer.duration, prepared };
+      source.onended = () => {
+        source.onended = null;
+        try { source.disconnect(); gain.disconnect(); } catch (e) { /* already disconnected */ }
+        this.edgeScheduled.delete(i);
+        if (tk !== this.token) return;
+        this.logEv('edge-end', i);
+        this.startedAt = performance.now() - scheduled.duration * 1000;
+        this.learn(this.vkey(), prepared.text.length, true);
+        this.afterChunk(i, tk);
+      };
+      this.edgeScheduled.set(i, scheduled);
+      this.edgeReady.delete(i);
+      this.edgeScheduleEnd = startTime + scheduled.duration;
+      this.edgeScheduleNext++;
+      try { source.start(startTime); }
+      catch (error) {
+        this.edgeScheduled.delete(i);
+        this.edgeScheduleNext = i;
+        this.edgeScheduleEnd = ctx.currentTime;
+        source.onended = null;
+        try { source.disconnect(); gain.disconnect(); } catch (e) { /* already disconnected */ }
+        throw error;
+      }
+    }
+    if (!this.onlineRaf) this.startEdgeTicker(tk);
+  },
+  startEdgeTicker(tk) {
+    const tick = () => {
+      this.onlineRaf = 0;
+      if (tk !== this.token || this.state !== 'playing') return;
+      const ctx = this.edgeAudioContext;
+      if (!ctx) return;
+      const now = ctx.currentTime - (ctx.outputLatency || 0);
+      let active = null;
+      for (const scheduled of this.edgeScheduled.values()) {
+        if (scheduled.startTime <= now) active = scheduled;
+        else break;
+      }
+      if (active) {
+        const { prepared } = active;
+        if (this.edgePlayingIndex !== active.i) {
+          this.edgePlayingIndex = active.i;
+          this.idx = active.i; this.base = prepared.from;
+          this.lastEventAt = this.startedAt = performance.now();
+          this.startFails = 0; this.errors = 0;
+          this.logEv('edge-start', active.i);
+          this.setPos(prepared.from, 'chunk');
+        }
+        const elapsed = Math.max(0, now - active.startTime) * clamp(A.rate, 0.5, 2.5);
+        let estimated = prepared.from + Math.floor(prepared.text.length * elapsed / Math.max(0.01, active.duration * clamp(A.rate, 0.5, 2.5)));
+        let left = 0, right = prepared.boundaries.length - 1, match = -1;
+        while (left <= right) {
+          const mid = (left + right) >> 1;
+          if (prepared.boundaries[mid].time <= elapsed) { match = mid; left = mid + 1; } else right = mid - 1;
+        }
+        if (match >= 0) estimated = prepared.boundaries[match].position;
+        const off = wordStartAtOrBefore(this.model.text, estimated, prepared.from);
+        if (off > this.pos) this.setPos(off, 'tick');
+      }
+      this.onlineRaf = requestAnimationFrame(tick);
+    };
+    this.onlineRaf = requestAnimationFrame(tick);
+  },
+  stopEdgePlayback() {
+    for (const request of this.edgeRequests.values()) request.controller.abort();
+    this.edgeRequests.clear(); this.edgeReady.clear();
+    for (const scheduled of this.edgeScheduled.values()) {
+      scheduled.source.onended = null;
+      try { scheduled.source.stop(); scheduled.source.disconnect(); scheduled.gain.disconnect(); } catch (e) { /* already ended */ }
+    }
+    this.edgeScheduled.clear();
+    this.edgeScheduleToken = 0; this.edgeScheduleNext = 0; this.edgeScheduleEnd = 0; this.edgePlayingIndex = -1;
   },
   waitEdgeRetry(ms, signal) {
     return new Promise((resolve, reject) => {
@@ -3435,12 +3650,11 @@ const TTS = {
     });
   },
   stopOnline() {
-    if (this.edgeRequest) { this.edgeRequest.abort(); this.edgeRequest = null; }
-    if (this.edgePrefetch) { this.edgePrefetch.controller.abort(); this.edgePrefetch = null; }
+    this.stopEdgePlayback();
     const a = this.audioEl;
     if (a) { try { a.onplaying = a.onended = a.onerror = null; a.pause(); } catch (e) { /* ignore */ } }
     if (this.audioUrl) { URL.revokeObjectURL(this.audioUrl); this.audioUrl = ''; }
-    cancelAnimationFrame(this.onlineRaf); clearTimeout(this.onlineTimer);
+    cancelAnimationFrame(this.onlineRaf); this.onlineRaf = 0; clearTimeout(this.onlineTimer);
   },
   speakChunkOnline(i, from, tk) {
     const m = this.model, c = m.chunks[i];
@@ -3470,63 +3684,25 @@ const TTS = {
     const n = m.chunks[i + 1]; if (n) { const pre = new window.Audio(); pre.preload = 'auto'; pre.src = this.vrssUrl(m.text.slice(n.s, n.e).replace(/\s+/g, ' ')); this.preAudio = pre; } // warm the next request
   },
   async speakChunkEdge(i, from, tk) {
-    const m = this.model;
-    this.idx = i; this.base = from; this.setPos(from, 'chunk');
-    let request = this.edgePrefetch;
-    if (request && request.i === i && request.from === from) this.edgePrefetch = null;
-    else {
-      if (request) { request.controller.abort(); this.edgePrefetch = null; }
-      request = this.requestEdgeChunk(i, from);
+    if (this.edgeScheduleToken !== tk) {
+      this.edgeScheduleToken = tk;
+      this.edgeScheduleNext = i;
+      this.edgeScheduleEnd = 0;
     }
-    this.edgeRequest = request.controller;
+    this.idx = i; this.base = from; this.setPos(from, 'chunk');
     try {
-      const result = await request.promise;
-      if (this.edgeRequest === request.controller) this.edgeRequest = null;
-      if (tk !== this.token) return;
-      if (result.error) throw result.error;
-      const blob = result.blob, text = request.text;
-      const boundaries = [];
-      let searchFrom = 0;
-      for (const boundary of result.boundaries || []) {
-        const at = text.indexOf(boundary.text, searchFrom);
-        if (at < 0) continue;
-        boundaries.push({ time: boundary.offset / 10000000, position: from + at });
-        searchFrom = at + boundary.text.length;
-      }
-      const a = this.audioEl || (this.audioEl = new window.Audio());
-      if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
-      this.audioUrl = URL.createObjectURL(blob);
-      a.preload = 'auto'; a.volume = clamp(A.volume / 100, 0, 1); a.playbackRate = clamp(A.rate, 0.5, 2.5);
-      if ('preservesPitch' in a) a.preservesPitch = true;
-      if ('webkitPreservesPitch' in a) a.webkitPreservesPitch = true;
-      a.onplaying = () => {
-        if (tk !== this.token) return;
-        this.startFails = 0; this.errors = 0; this.lastEventAt = this.startedAt = performance.now(); this.logEv('edge-start', i);
-        clearTimeout(this.onlineTimer);
+      const request = this.edgeRequests.get(i);
+      if (this.edgeScheduled.has(i)) {
         this.prefetchEdgeChunk(i + 1, tk);
-        const len = text.length, tick = () => {
-          if (tk !== this.token || this.state !== 'playing') return;
-          let estimated = from + Math.floor(len * (a.currentTime / (a.duration || Infinity)));
-          if (boundaries.length) {
-            let left = 0, right = boundaries.length - 1, match = -1;
-            while (left <= right) {
-              const mid = (left + right) >> 1;
-              if (boundaries[mid].time <= a.currentTime) { match = mid; left = mid + 1; } else right = mid - 1;
-            }
-            if (match >= 0) estimated = boundaries[match].position;
-          }
-          const off = wordStartAtOrBefore(m.text, estimated, from);
-          if (off > this.pos) this.setPos(off, 'tick');
-          this.onlineRaf = requestAnimationFrame(tick);
-        };
-        tick();
-      };
-      a.onended = () => { if (tk !== this.token) return; this.logEv('edge-end', i); cancelAnimationFrame(this.onlineRaf); this.learn(this.vkey(), text.length, true); this.afterChunk(i, tk); };
-      a.onerror = () => { if (tk === this.token) this.edgeError(i, from, tk, 'audio playback failed'); };
-      a.src = this.audioUrl; this.utt = null; this.lastSpeakAt = performance.now();
-      const p = a.play(); if (p && p.catch) p.catch(err => { if (tk !== this.token) return; if (err && err.name === 'NotAllowedError') { this.pause(); toast('Tap play to start reading aloud'); } else if (err && err.name !== 'AbortError') this.edgeError(i, from, tk, err.message); });
-      clearTimeout(this.onlineTimer);
-      this.onlineTimer = setTimeout(() => { if (tk === this.token && this.state === 'playing' && a.paused && a.currentTime === 0) this.edgeError(i, from, tk, 'playback did not start'); }, 12000);
+        this.prefetchEdgeChunk(i + 2, tk);
+        return;
+      }
+      if (!this.edgeReady.has(i)) await (request || this.prefetchEdgeChunk(i, tk)).promise;
+      if (tk !== this.token) return;
+      this.scheduleEdgeReady(tk);
+      if (!this.edgeScheduled.has(i)) throw new Error('Edge audio could not be scheduled');
+      this.prefetchEdgeChunk(i + 1, tk);
+      this.prefetchEdgeChunk(i + 2, tk);
     } catch (err) {
       if (tk !== this.token || err.name === 'AbortError') return;
       this.edgeError(i, from, tk, err.message, err.rateLimited);
@@ -3962,9 +4138,7 @@ function setAudio(key, val) {
   if (A[key] === val) { syncAudioSettingsUI(); return; }
   A[key] = val; saveAudioSettings();
   if (key === 'voiceURI') { TTS.forceDefault = false; TTS.forceLocal = false; TTS.startFails = 0; }
-  if (key === 'rate' && TTS.online() && TTS.audioEl && TTS.state === 'playing') {
-    TTS.audioEl.playbackRate = clamp(A.rate, 0.5, 2.5);
-  } else if (['rate', 'pitch', 'volume', 'voiceURI'].includes(key)) TTS.restartSoon();
+  if (['rate', 'pitch', 'volume', 'voiceURI'].includes(key)) TTS.restartSoon();
   if (key === 'hlMode' || key === 'trail') { TTS.trail = []; TTS.unit = null; TTS.word = null; TTS.sylTimers.forEach(clearTimeout); if (TTS.model) { TTS.updateUnit('mode'); TTS.renderHL(); } }
   if (key === 'hlColor') applyAudioColor();
   if (key === 'engine' || key === 'cadence') { TTS.onlineDown = false; TTS.ssmlDown = false; TTS.vrssVoiceDown = false; if (key === 'engine' && val === 'voicerss' && !(A.vrssKey || CONFIG.tts.voicerssKey)) toast('Paste your free VoiceRSS key below'); if (key === 'engine' && val === 'edge' && !edgeProxyUrl()) toast('Enter your EdgeTTS Worker URL below'); TTS.restartSoon(); }
