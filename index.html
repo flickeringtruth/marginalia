@@ -75,6 +75,13 @@ svg{display:block}
 .pill:active{opacity:.75}
 .lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:30px 22px;max-width:1100px;margin:0 auto}
 @media (min-width:700px){.lib-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}}
+@media (max-width:520px){
+  #library{padding-left:calc(var(--sal) + 12px);padding-right:calc(var(--sar) + 12px)}
+  .lib-head{align-items:stretch;flex-direction:column;gap:12px;padding:12px 0 18px}
+  .lib-head h1{font-size:clamp(28px,8vw,34px)}
+  .lib-actions{display:grid;grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr);gap:8px;width:100%}
+  .lib-actions>*{min-width:0;justify-content:center;padding-left:8px;padding-right:8px}
+}
 .card{position:relative;min-width:0}
 .cover-btn{display:block;width:100%;aspect-ratio:2/3;border-radius:4px;overflow:hidden;position:relative;
   box-shadow:0 1px 2px rgba(0,0,0,.12),0 8px 22px rgba(0,0,0,.14);background:var(--card);transition:transform .25s var(--ease)}
@@ -441,7 +448,11 @@ body.audio-popup-open #abStop{display:none}
 body.audio-lyrics-open .ab-popup-backdrop,body.audio-lyrics-open .ab-full,body.audio-lyrics-open #abMini{opacity:0;pointer-events:none}
 .ab-lyrics{position:absolute;inset:0;z-index:2;display:none;pointer-events:auto;background:var(--bg);color:var(--fg);padding:calc(var(--sat) + 10px) calc(var(--sar) + 20px) calc(var(--sab) + 18px) calc(var(--sal) + 20px)}
 body.audio-lyrics-open .ab-lyrics{display:flex;flex-direction:column}
+body.lyrics-fullscreen-fallback .ab-lyrics{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;z-index:1000}
+.ab-lyrics-head,.ab-lyrics-list,.ab-lyrics-foot{width:min(760px,100%);margin-left:auto;margin-right:auto}
 .ab-lyrics-head{display:flex;align-items:center;gap:12px;min-height:48px;flex:none}
+.ab-lyrics-fullscreen{width:44px;height:44px;border-radius:22px;background:var(--card);display:flex;align-items:center;justify-content:center;flex:none}
+.ab-lyrics-fullscreen svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .ab-lyrics-book{flex:1;min-width:0}
 .ab-lyrics-book b,.ab-lyrics-book span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ab-lyrics-book b{font-size:15px;font-weight:650}
@@ -453,7 +464,8 @@ body.audio-lyrics-open .ab-lyrics{display:flex;flex-direction:column}
 .ab-lyric-line{display:block;width:100%;padding:12px 4px;background:none;color:var(--muted);font-family:inherit;font-size:clamp(20px,5.5vw,30px);font-weight:600;line-height:1.3;text-align:center;opacity:.38;transition:opacity .18s,color .18s,transform .18s}
 .ab-lyric-line.active{color:var(--fg);opacity:1;transform:scale(1.015)}
 .ab-lyric-line.past{opacity:.62}
-.ab-lyrics-foot{flex:none;padding-top:12px;text-align:center;color:var(--muted);font-size:12px}
+.ab-lyrics-foot{display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;padding-top:12px;text-align:center;color:var(--muted);font-size:12px}
+.ab-lyrics-back{width:min(360px,100%);min-height:44px;border-radius:22px;background:var(--card);color:var(--fg);font-size:14px;font-weight:600}
 .ab-mini-lyrics{width:38px;height:44px;font-size:21px}
 .ab-readalong{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:44px;margin-top:8px;border-radius:14px;background:var(--card);color:var(--fg);font-size:14px;font-weight:600}
 .ab-readalong svg{width:20px;height:20px}
@@ -746,13 +758,16 @@ body.is-pdf #dictFloat{display:none!important}
       <button class="ab-readalong" id="abLyricsButton"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 11h10M5 16h14M5 21h10"/></svg>Read along</button>
     </div>
       <section class="ab-lyrics" id="abLyrics" role="dialog" aria-modal="true" aria-label="Read along">
-        <header class="ab-lyrics-head">
+        <header class="ab-lyrics-head" id="abLyricsHead">
           <button class="ab-lyrics-close" id="abLyricsClose" aria-label="Close read along"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
           <div class="ab-lyrics-book"><b id="abLyricsBookTitle"></b><span id="abLyricsChapter"></span></div>
+          <button class="ab-lyrics-fullscreen" id="abLyricsFullscreen" aria-label="Enter fullscreen" title="Enter fullscreen">
+            <svg id="abLyricsFullscreenIcon" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
+          </button>
           <button class="ab-lyrics-play" id="abLyricsPlay" aria-label="Pause"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/></svg></button>
         </header>
         <div class="ab-lyrics-list" id="abLyricsList" aria-live="polite"></div>
-        <footer class="ab-lyrics-foot">Tap a line to read from there</footer>
+        <footer class="ab-lyrics-foot"><span>Tap a line to read from there</span><button class="ab-lyrics-back" id="abLyricsBack">Back to reader</button></footer>
       </section>
       <div id="abMini" role="group" aria-label="Read aloud">
         <button class="ab-play" id="abPlayMini" aria-label="Play"></button>
@@ -917,10 +932,8 @@ const CONFIG = {
      to try Oxford first. ("Open in OED" links work without any key.) */
   oed: { appId: '', appKey: '', endpoint: 'https://od-api.oxforddictionaries.com/api/v2/entries/en-gb/' },
   oedSearchUrl: 'https://www.oed.com/search/dictionary/?q=',
-  /* ── Optional API keys (you can also paste them in the app: Settings › Audio and OpenAI settings in the AI Assistant) ──
-     VoiceRSS (online voices, 350 free requests/day): register at https://www.voicerss.org/personel/ → copy "API key".
+  /* ── Optional API keys (you can also paste them in the app: OpenAI settings in the AI Assistant) ──
      OpenAI API usage is billed separately; add a personal key in the AI Assistant settings. */
-  tts: { voicerssKey: '', voicerssUrl: 'https://api.voicerss.org/' },
   ai: { model: 'gpt-4o-mini' },
   // Free Dictionary API (free, no key) — primary English source
   freeDictionaryUrl: 'https://api.dictionaryapi.dev/api/v2/entries/en/',
@@ -3001,18 +3014,17 @@ function bindStage() {
 const TTS_OK = typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance === 'function';
 const A_DEFAULTS = { voiceURI: '', preset: 'deep', rate: 1, pitch: 0.85, volume: 100, hlMode: 'word', trail: 'two', hlColor: 'orange',
   autoScroll: true, autoNext: true, startFrom: 'chapter', sleep: 0,
-  engine: 'device',          // 'device' (SpeechSynthesis) | 'voicerss' (online, free key)
-  vrssKey: '', vrssVoice: '', ssml: false,
+  engine: 'device',
+  voiceLocked: true,
   edgeProxy: '', edgeVoice: 'en-US-AriaNeural',
   cadence: false,            // sentence-aware storytelling cadence for Edge and device voices
   ambient: 'off', ambVol: 0.35 };
 let A = Object.assign({}, A_DEFAULTS, LS.get('reader.audio', {}));
+if (A.engine === 'voicerss') A.engine = 'device';
+delete A.vrssKey; delete A.vrssVoice; delete A.ssml;
 const saveAudioSettings = debounce(() => LS.set('reader.audio', A), 250);
 const AHL_COLORS = { orange: '255,149,0', teal: '48,176,199', graphite: '142,142,147' }; // none of these match manual highlight colors
 const AUDIO_PRESETS = { auto: { rate: 1, pitch: 1 }, deep: { rate: 1, pitch: 0.85 }, natural: { rate: 1, pitch: 1 }, narrator: { rate: 0.9, pitch: 0.95 }, story: { rate: 0.85, pitch: 0.8, cadence: true } };
-/* VoiceRSS voices per language (free plan). Deep/male voices first. */
-const VRSS_VOICES = { 'en-us': ['John', 'Mike', 'Linda', 'Amy', 'Mary'], 'en-gb': ['Harry', 'Alice', 'Nancy', 'Lily'], 'en-au': ['Jack', 'Zoe', 'Isla', 'Evie'], 'nl-nl': ['Daan', 'Bram', 'Lotte'], 'de-de': ['Jonas', 'Hanna', 'Lina'], 'fr-fr': ['Axel', 'Bette', 'Iva', 'Zola'], 'es-es': ['Diego', 'Camila', 'Sofia'] };
-function vrssLang() { const l = bookLang().toLowerCase().replace('_', '-'); if (VRSS_VOICES[l]) return l; const b = l.split('-')[0]; return { en: 'en-us', nl: 'nl-nl', de: 'de-de', fr: 'fr-fr', es: 'es-es', it: 'it-it', pt: 'pt-pt', sv: 'sv-se', da: 'da-dk', nb: 'nb-no', pl: 'pl-pl' }[b] || 'en-us'; }
 const EDGE_VOICES = [
   'en-US-AnaNeural', 'en-US-AndrewNeural', 'en-US-AndrewMultilingualNeural', 'en-US-AriaNeural', 'en-US-AvaNeural',
   'en-US-AvaMultilingualNeural', 'en-US-BrianNeural', 'en-US-BrianMultilingualNeural', 'en-US-ChristopherNeural',
@@ -3199,7 +3211,7 @@ const TTS = {
   model: null, models: new Map(), ch: -1, pos: 0, idx: 0, base: 0, token: 0,
   utt: null, uttLen: 0, edgeAudioContext: null, edgeRequests: new Map(), edgeReady: new Map(), edgeScheduled: new Map(),
   edgeScheduleToken: 0, edgeScheduleNext: 0, edgeScheduleEnd: 0, edgePlayingIndex: -1,
-  audioUrl: '', startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
+  startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
   hasBoundary: new Map(), cps: LS.get('reader.audio.cps', {}),
   nodeMaps: new WeakMap(),
   ticker: 0, watchdog: 0, sylTimers: [], unit: null, word: null, trail: [],
@@ -3320,9 +3332,9 @@ const TTS = {
     if (this.forceLocal) return Voices.best(bookLang(), 'auto', true);
     const v = A.voiceURI && Voices.byURI(A.voiceURI); return v || Voices.best(bookLang(), A.preset === 'custom' ? 'auto' : A.preset);
   },
-  vkey() { if (this.online()) return A.engine === 'edge' ? 'edge:' + A.edgeVoice : 'vrss'; const v = this.voice(); return v ? v.voiceURI : 'default'; },
+  vkey() { if (this.online()) return 'edge:' + A.edgeVoice; const v = this.voice(); return v ? v.voiceURI : 'default'; },
   charsPerSec() { return (this.cps[this.vkey()] || 14.5) * clamp(A.rate, 0.1, 10); },
-  online() { return (A.engine === 'voicerss' && !!(A.vrssKey || CONFIG.tts.voicerssKey) || A.engine === 'edge') && !this.onlineDown; },
+  online() { return A.engine === 'edge' && !this.onlineDown; },
   mode() { return this.online() ? A.engine === 'edge' ? 'edge' : 'online' : A.cadence ? 'cadence' : 'plain'; },
   mk(ch) { return ch + '|' + this.mode(); },
   async getModel(ch) {
@@ -3478,7 +3490,7 @@ const TTS = {
     return { p, r, v };
   },
   speakChunk(i, from, tk) {
-    if (this.online()) { if (A.engine === 'edge') this.speakChunkEdge(i, from, tk); else this.speakChunkOnline(i, from, tk); return; }
+    if (this.online()) { this.speakChunkEdge(i, from, tk); return; }
     const m = this.model, c = m.chunks[i];
     this.idx = i; this.base = from;
     const text = m.text.slice(from, c.e).replace(/\s/g, ' ');   // length-preserving, so charIndex maps 1:1
@@ -3510,6 +3522,9 @@ const TTS = {
       if (e.error === 'interrupted' || e.error === 'canceled') return;
       console.warn('Speech error:', e.error);
       if (e.error === 'not-allowed') { this.pause(); toast('Tap play to start reading aloud'); return; }
+      if ((e.error === 'voice-unavailable' || e.error === 'synthesis-unavailable' || e.error === 'language-unavailable') && A.voiceURI && A.voiceLocked) {
+        this.pause(); toast('The locked voice is unavailable. Choose another voice or unlock voice fallback.', 3600); return;
+      }
       if ((e.error === 'voice-unavailable' || e.error === 'synthesis-unavailable' || e.error === 'language-unavailable') && A.voiceURI) {
         A.voiceURI = ''; A.preset = 'auto'; saveAudioSettings(); toast('That voice isn’t available — using the default voice'); setTimeout(() => { if (tk === this.token) this.speakFrom(this.ch, this.pos); }, 100); return;
       }
@@ -3525,16 +3540,6 @@ const TTS = {
       speechSynthesis.speak(u); this.logEv('speak', i + ' len ' + text.length + ' ' + (v ? v.name : 'default voice')); }
     catch (err) { console.error(err); this.logEv('speak-threw', err.message); this.pause(); toast('Speech failed to start'); return; }
     this.startWatchdog(tk);
-  },
-  /* ---- Online engine: VoiceRSS through an <audio> element (no CORS needed) ---- */
-  vrssUrl(text) {
-    const key = A.vrssKey || CONFIG.tts.voicerssKey, hl = vrssLang();
-    let src = text, ssml = A.ssml && !this.ssmlDown;
-    if (ssml) src = toSSML(text);
-    const q = new URLSearchParams({ key, hl, r: String(clamp(Math.round((A.rate - 1) * 10), -10, 10)), c: 'MP3', f: '24khz_16bit_mono', src });
-    const v = A.vrssVoice || (VRSS_VOICES[hl] || [])[0]; if (v && !this.vrssVoiceDown) q.set('v', v);
-    if (ssml) q.set('ssml', 'true');
-    return CONFIG.tts.voicerssUrl + '?' + q.toString();
   },
   edgeStoryProsody(text) {
     const sentence = text.trim(), basePitch = clamp(A.pitch, 0.5, 1.6);
@@ -3738,37 +3743,7 @@ const TTS = {
   },
   stopOnline() {
     this.stopEdgePlayback();
-    const a = this.audioEl;
-    if (a) { try { a.onplaying = a.onended = a.onerror = null; a.pause(); } catch (e) { /* ignore */ } }
-    if (this.audioUrl) { URL.revokeObjectURL(this.audioUrl); this.audioUrl = ''; }
-    cancelAnimationFrame(this.onlineRaf); this.onlineRaf = 0; clearTimeout(this.onlineTimer);
-  },
-  speakChunkOnline(i, from, tk) {
-    const m = this.model, c = m.chunks[i];
-    this.idx = i; this.base = from;
-    const text = m.text.slice(from, c.e).replace(/\s+/g, ' ');
-    const a = this.audioEl || (this.audioEl = new window.Audio());
-    a.preload = 'auto'; a.volume = clamp(A.volume / 100, 0, 1);
-    a.onplaying = () => {
-      if (tk !== this.token) return;
-      this.startFails = 0; this.errors = 0; this.lastEventAt = this.startedAt = performance.now(); this.logEv('online-start', i);
-      clearTimeout(this.onlineTimer);
-      const len = text.length, tick = () => {
-        if (tk !== this.token || this.state !== 'playing') return;
-        const d = a.duration; if (d && isFinite(d)) { const off = wordStartAtOrBefore(m.text, from + Math.floor(clamp(a.currentTime / d, 0, 0.999) * len), from); if (off > this.pos) this.setPos(off, 'tick'); }
-        this.onlineRaf = requestAnimationFrame(tick);
-      };
-      tick();
-    };
-    a.onended = () => { if (tk !== this.token) return; this.logEv('online-end', i); cancelAnimationFrame(this.onlineRaf); this.learn('vrss', text.length, true); this.afterChunk(i, tk); };
-    a.onerror = () => { if (tk !== this.token) return; this.onlineError(i, from, tk); };
-    a.src = this.vrssUrl(text);
-    this.utt = null; this.lastSpeakAt = performance.now();
-    this.setPos(from, 'chunk');
-    const p = a.play(); if (p && p.catch) p.catch(err => { if (tk !== this.token) return; if (err && err.name === 'NotAllowedError') { this.pause(); toast('Tap play to start reading aloud'); } else if (err && err.name !== 'AbortError') this.onlineError(i, from, tk); });
-    clearTimeout(this.onlineTimer);
-    this.onlineTimer = setTimeout(() => { if (tk === this.token && this.state === 'playing' && a.paused && a.currentTime === 0) this.onlineError(i, from, tk); }, 12000);
-    const n = m.chunks[i + 1]; if (n) { const pre = new window.Audio(); pre.preload = 'auto'; pre.src = this.vrssUrl(m.text.slice(n.s, n.e).replace(/\s+/g, ' ')); this.preAudio = pre; } // warm the next request
+    cancelAnimationFrame(this.onlineRaf); this.onlineRaf = 0;
   },
   async speakChunkEdge(i, from, tk) {
     if (this.edgeScheduleToken !== tk) {
@@ -3797,6 +3772,14 @@ const TTS = {
   },
   edgeError(i, from, tk, message, rateLimited) {
     if (tk !== this.token) return;
+    if (A.voiceLocked) {
+      this.logEv(rateLimited ? 'edge-rate-limit' : 'edge-error', message);
+      this.stopOnline(); this.onlineDown = true; this.pause();
+      toast(rateLimited
+        ? 'EdgeTTS is rate-limited. Playback paused to keep your locked voice.'
+        : 'EdgeTTS failed (' + message + '). Playback paused to keep your locked voice.', 4200);
+      return;
+    }
     if (rateLimited) {
       this.logEv('edge-rate-limit', 'falling back to device speech');
       this.stopOnline(); this.onlineDown = true;
@@ -3807,14 +3790,6 @@ const TTS = {
     this.logEv('edge-error', message); this.stopOnline(); this.onlineDown = true;
     toast('EdgeTTS failed (' + message + ') — using device voices', 4200);
     this.speakFrom(this.ch, this.pos || from);
-  },
-  onlineError(i, from, tk) {
-    this.logEv('online-error', i);
-    if (A.ssml && !this.ssmlDown) { this.ssmlDown = true; toast('Your VoiceRSS plan doesn’t accept SSML — continuing with plain text', 3200); this.speakChunkOnline(i, from, tk); return; }
-    if (!this.vrssVoiceDown && (A.vrssVoice || VRSS_VOICES[vrssLang()])) { this.vrssVoiceDown = true; this.speakChunkOnline(i, from, tk); return; }
-    this.stopOnline(); this.onlineDown = true;
-    toast('VoiceRSS didn’t answer (check the key, the 350/day limit or your connection) — using device voices', 4200);
-    this.speakFrom(this.ch, this.pos);
   },
   afterChunk(i, tk) {
     if (tk !== this.token) return;
@@ -3864,10 +3839,10 @@ const TTS = {
         }
         u._done = true; clearInterval(this.watchdog);
         this.startFails++;
-        if (this.startFails === 1 && IS_CHROME_DESKTOP && u._v && u._v.localService === false && Voices.best(bookLang(), 'auto', true)) this.startFails = 2; // online voice on Chrome → straight to on-device
+        if (this.startFails === 1 && !A.voiceLocked && IS_CHROME_DESKTOP && u._v && u._v.localService === false && Voices.best(bookLang(), 'auto', true)) this.startFails = 2; // online voice on Chrome → straight to on-device
         if (this.startFails === 1) { this.logEv('watchdog', 'never started → reset engine, retry'); try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } this.utt = null; setTimeout(() => { if (tk === this.token) this.speakFrom(this.ch, this.pos); }, 150); return; }
-        if (this.startFails === 2 && !this.forceLocal && Voices.best(bookLang(), 'auto', true)) { this.logEv('watchdog', 'never started → retry with on-device voice'); this.forceLocal = true; try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } this.utt = null; setTimeout(() => { if (tk === this.token) this.speakFrom(this.ch, this.pos); }, 200); return; }
-        if (this.startFails <= 3 && !this.forceDefault) { this.logEv('watchdog', 'never started → retry with engine default'); this.forceDefault = true; this.forceLocal = false; try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } this.utt = null; setTimeout(() => { if (tk === this.token) this.speakFrom(this.ch, this.pos); }, 150); return; }
+        if (this.startFails === 2 && !A.voiceLocked && !this.forceLocal && Voices.best(bookLang(), 'auto', true)) { this.logEv('watchdog', 'never started → retry with on-device voice'); this.forceLocal = true; try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } this.utt = null; setTimeout(() => { if (tk === this.token) this.speakFrom(this.ch, this.pos); }, 200); return; }
+        if (this.startFails <= 3 && !A.voiceLocked && !this.forceDefault) { this.logEv('watchdog', 'never started → retry with engine default'); this.forceDefault = true; this.forceLocal = false; try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } this.utt = null; setTimeout(() => { if (tk === this.token) this.speakFrom(this.ch, this.pos); }, 150); return; }
         this.logEv('watchdog', 'never started → give up'); this.startFails = 0; this.forceDefault = false; this.forceLocal = false; this.pause(); showNoSoundHelp(); return;
       }
       const expected = u._len / this.charsPerSec() * 1000, elapsed = now - this.startedAt, quiet = now - this.lastEventAt;
@@ -3880,13 +3855,14 @@ const TTS = {
   },
   /* Chrome desktop: a preset that picked an online voice earlier is moved to the best on-device voice. */
   migrateVoice() {
-    if (!IS_CHROME_DESKTOP || !A.voiceURI || A.preset === 'custom') return;
+    if (A.voiceLocked || !IS_CHROME_DESKTOP || !A.voiceURI || A.preset === 'custom') return;
     const cur = Voices.byURI(A.voiceURI); if (!cur || cur.localService !== false) return;
     const loc = Voices.best(bookLang(), A.preset === 'auto' ? 'auto' : A.preset, true);
     if (loc) { A.voiceURI = loc.voiceURI; saveAudioSettings(); this.logEv('migrate', cur.name + ' → ' + loc.name); }
   },
   engineOk() {
     this.proven = true;
+    if (A.voiceLocked) { this.forceLocal = false; this.forceDefault = false; return; }
     if (this.forceLocal) { const v = Voices.best(bookLang(), 'auto', true); this.forceLocal = false; if (v) { A.voiceURI = v.voiceURI; A.preset = 'custom'; saveAudioSettings(); toast('That voice didn’t play — switched to ' + v.name + ' (on this device)', 3500); fillVoiceSelect(); } }
     else if (this.forceDefault && A.voiceURI) { A.voiceURI = ''; A.preset = 'auto'; saveAudioSettings(); toast('Your chosen voice didn’t play — switched to the default voice', 3200); fillVoiceSelect(); }
   },
@@ -4058,15 +4034,6 @@ const TTS = {
   },
   armSleepIfNeeded() { if (!this.sleepEnd && !this.sleepEoc && A.sleep !== 0) this.armSleep(); }
 };
-/* SSML for the online engine (paid VoiceRSS plans): pauses at commas, emphasis on dialogue and CAPITALS. */
-function toSSML(text) {
-  const x = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  let t = x(text);
-  t = t.replace(/([“"][^”"]{2,200}[”"])/g, '<emphasis level="moderate">$1</emphasis>');
-  t = t.replace(/\b([A-Z]{2,}(?:\s+[A-Z]{2,})*)\b/g, '<emphasis level="strong">$1</emphasis>');
-  t = t.replace(/([,;:])\s/g, '$1<break time="250ms"/> ').replace(/([.!?…])\s/g, '$1<break time="400ms"/> ').replace(/\s[—–]\s/g, ' <break time="300ms"/> ');
-  return '<speak><prosody rate="medium" pitch="-5%">' + t + '</prosody></speak>';
-}
 /* Speaks arbitrary text phrase by phrase with storytelling cadence on a device voice (used for previews). */
 function speakWithCadence(text) {
   if (!TTS_OK) return;
@@ -4104,6 +4071,7 @@ const AudioUI = {
   lyricRanges: [],
   lyricRows: [],
   lyricLineIndex: -1,
+  fullscreenFallback: false,
   sync() {
     const st = TTS.state, on = st !== 'idle';
     $('#audioBar').classList.toggle('hidden', !on);
@@ -4118,7 +4086,7 @@ const AudioUI = {
     $('#abRate').textContent = (+A.rate).toFixed(2).replace(/\.?0+$/, '') + '×';
     $('#abPopupRate').textContent = (+A.rate).toFixed(1).replace(/\.0$/, '') + '×';
     const voice = A.engine === 'edge' ? A.edgeVoice.replace(/Neural$/, '').split('-').pop() :
-      A.engine === 'voicerss' ? A.vrssVoice || 'VoiceRSS' : (TTS.voice() && TTS.voice().name) || 'Device voice';
+      (TTS.voice() && TTS.voice().name) || 'Device voice';
     $('#abPopupVoiceName').textContent = voice;
     $('#abTitle').textContent = App.book ? App.book.meta.title : '';
     this.syncBookCover();
@@ -4185,9 +4153,74 @@ const AudioUI = {
     document.body.classList.remove('audio-popup-open');
     document.body.classList.add('audio-lyrics-open');
     this.syncLyrics(true);
+    this.syncLyricsFullscreen();
     $('#abLyricsClose').focus({ preventScroll: true });
   },
-  closeLyrics() { document.body.classList.remove('audio-lyrics-open'); },
+  fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; },
+  syncLyricsFullscreen() {
+    const active = !!this.fullscreenElement() || this.fullscreenFallback;
+    const button = $('#abLyricsFullscreen');
+    button.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+    button.title = active ? 'Exit fullscreen' : 'Enter fullscreen';
+    $('#abLyricsFullscreenIcon').innerHTML = active
+      ? '<path d="M4 9h3a2 2 0 0 0 2-2V4M15 4v3a2 2 0 0 0 2 2h3M20 15h-3a2 2 0 0 0-2 2v3M9 20v-3a2 2 0 0 0-2-2H4"/>'
+      : '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/>';
+  },
+  async toggleLyricsFullscreen() {
+    if (this.fullscreenElement()) {
+      try {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      } catch (error) {
+        toast('Could not exit fullscreen: ' + error.message, 2800);
+        return;
+      }
+      this.fullscreenFallback = false;
+      document.body.classList.remove('lyrics-fullscreen-fallback');
+      this.syncLyricsFullscreen();
+      return;
+    }
+    if (this.fullscreenFallback) {
+      this.fullscreenFallback = false;
+      document.body.classList.remove('lyrics-fullscreen-fallback');
+      this.syncLyricsFullscreen();
+      return;
+    }
+    const root = document.documentElement;
+    const request = root.requestFullscreen || root.webkitRequestFullscreen;
+    if (request) {
+      try {
+        await request.call(root);
+        this.fullscreenFallback = false;
+        document.body.classList.remove('lyrics-fullscreen-fallback');
+        this.syncLyricsFullscreen();
+        return;
+      } catch (error) {
+        this.fullscreenFallback = true;
+        document.body.classList.add('lyrics-fullscreen-fallback');
+        this.syncLyricsFullscreen();
+        toast('Browser fullscreen was unavailable; read-along is expanded to fill the screen.', 3000);
+        return;
+      }
+    }
+    this.fullscreenFallback = true;
+    document.body.classList.add('lyrics-fullscreen-fallback');
+    this.syncLyricsFullscreen();
+    toast('Browser fullscreen is not supported here; read-along is expanded to fill the screen.', 3000);
+  },
+  closeLyrics() {
+    document.body.classList.remove('audio-lyrics-open', 'lyrics-fullscreen-fallback');
+    this.fullscreenFallback = false;
+    if (this.fullscreenElement()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) {
+        try {
+          const result = exit.call(document);
+          if (result && result.catch) result.catch(error => toast('Could not exit fullscreen: ' + error.message, 2800));
+        } catch (error) { toast('Could not exit fullscreen: ' + error.message, 2800); }
+      }
+    }
+  },
   syncLyrics(force = false) {
     const model = TTS.model;
     if (!model) return;
@@ -4255,22 +4288,20 @@ function aseg(key, opts) { return `<div class="seg" data-aseg="${key}">${opts.ma
 function buildAudioSettings() {
   $('#audioBody').innerHTML = `
   <div class="grp"><h3>Engine</h3>
-    ${aseg('engine', [['device', 'Device voices'], ['voicerss', 'VoiceRSS (online)'], ['edge', 'EdgeTTS']])}
-    <div id="vrssBox" class="hidden" style="margin-top:10px">
-      <div class="key-row"><input id="vrssKey" type="password" placeholder="VoiceRSS API key" autocomplete="off" aria-label="VoiceRSS API key"><button class="small-btn" id="vrssSave">Save</button></div>
-      <div class="row" style="margin-top:6px"><span>Voice</span><select id="vrssVoice" aria-label="VoiceRSS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px"></select></div>
-      <button class="switch-row" data-atoggle="ssml">SSML storytelling (paid VoiceRSS plans)<span class="switch"></span></button>
-      <p class="hint">Free key: <a href="https://www.voicerss.org/personel/" target="_blank" rel="noopener">voicerss.org</a> → register → copy the API key. The free plan allows 350 requests a day (about 5–8 chapters, text is sent in larger pieces to save requests) and no SSML; if a request fails, reading continues with device voices.</p>
-    </div>
+    ${aseg('engine', [['device', 'Device voices'], ['edge', 'EdgeTTS']])}
     <div id="edgeBox" class="hidden" style="margin-top:10px">
       <div class="key-row"><input id="edgeProxy" type="url" placeholder="https://your-worker.workers.dev" autocomplete="off" autocapitalize="off" aria-label="EdgeTTS Worker URL"><button class="small-btn" id="edgeSave">Save</button></div>
-      <div class="row" style="margin-top:6px"><span>Voice</span><select id="edgeVoice" aria-label="EdgeTTS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px">${EDGE_VOICES.map(v => `<option value="${v}">${v}</option>`).join('')}</select><button class="small-btn" id="edgePreview">Preview</button></div>
+      <input id="edgeVoiceSearch" type="search" placeholder="Search voices or languages" aria-label="Search EdgeTTS voices" style="box-sizing:border-box;width:100%;height:44px;margin-top:8px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px">
+      <div class="row" style="margin-top:6px"><span>Voice</span><select id="edgeVoice" aria-label="EdgeTTS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px"></select><button class="small-btn" id="edgePreview">Preview</button></div>
+      <div class="row" style="margin-top:6px;justify-content:flex-end"><button class="small-btn" id="edgeVoicePrev" aria-label="Previous matching EdgeTTS voice">Previous</button><button class="small-btn" id="edgeVoiceNext" aria-label="Next matching EdgeTTS voice">Next</button></div>
       <p class="hint">Enter the Cloudflare Worker address used by the Edge voice test. It is saved on this device.</p>
     </div>
   </div>
   <div class="grp"><h3>Voice</h3>
     <div class="chips" data-aseg="preset"><button data-v="auto">Best available</button><button data-v="deep">Deep</button><button data-v="natural">Natural</button><button data-v="narrator">Narrator</button><button data-v="story">Storytelling</button></div>
     <div class="row" style="margin-top:8px"><select id="voiceSelect" aria-label="Voice"></select><button class="small-btn" id="voicePreview">Preview</button></div>
+    <button class="switch-row" data-atoggle="voiceLocked">Lock selected voice<span class="switch"></span></button>
+    <p class="hint">When locked, the selected voice won’t be changed automatically. If it can’t play, reading pauses instead of switching.</p>
     <button class="switch-row" data-atoggle="cadence">Storytelling cadence<span class="switch"></span></button>
     <p class="hint">Adds subtle sentence-aware pacing and pitch changes for EdgeTTS and device voices.</p>
     <p class="hint" id="voiceHint">Voices come from your device and are free. For more natural voices on iPhone or iPad, download an Enhanced or Premium voice in Settings → Accessibility → Spoken Content → Voices. On Windows, Microsoft Edge offers free Natural voices.</p>
@@ -4310,7 +4341,36 @@ function buildAudioSettings() {
     <pre id="ttsReport" class="hidden" style="white-space:pre-wrap;font-size:11px;line-height:1.4;max-height:220px;overflow:auto;background:var(--card);padding:10px;border-radius:10px;-webkit-user-select:text;user-select:text"></pre>
   </div>
   <button class="wide-btn" data-aact="reset">Reset audio settings</button>`;
+  fillEdgeVoiceSelect();
   fillVoiceSelect();
+}
+function fillEdgeVoiceSelect(query) {
+  const sel = $('#edgeVoice'); if (!sel) return;
+  const q = String(query || '').trim().toLowerCase();
+  const matches = EDGE_VOICES.filter(v => v.toLowerCase().includes(q));
+  const selected = EDGE_VOICES.includes(A.edgeVoice) ? A.edgeVoice : EDGE_VOICES[0];
+  const option = v => `<option value="${esc(v)}">${esc(v)}</option>`;
+  const groups = new Map();
+  matches.forEach(v => {
+    const lang = v.slice(0, 5);
+    if (!groups.has(lang)) groups.set(lang, []);
+    groups.get(lang).push(v);
+  });
+  let html = '';
+  if (q && !matches.includes(selected)) html += `<optgroup label="Current selection">${option(selected)}</optgroup>`;
+  groups.forEach((voices, lang) => { html += `<optgroup label="${esc(lang)} (${voices.length})">${voices.map(option).join('')}</optgroup>`; });
+  if (!html) html = '<option disabled>No matching voices</option>';
+  sel.innerHTML = html;
+  sel.value = selected;
+}
+function stepEdgeVoice(direction) {
+  const query = $('#edgeVoiceSearch')?.value || '';
+  const voices = EDGE_VOICES.filter(v => v.toLowerCase().includes(query.trim().toLowerCase()));
+  if (!voices.length) { toast('No voices match your search'); return; }
+  const current = voices.indexOf(A.edgeVoice);
+  A.edgeVoice = voices[(current + direction + voices.length) % voices.length];
+  A.voiceLocked = true; saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear();
+  fillEdgeVoiceSelect(query); syncAudioSettingsUI(); TTS.restartSoon();
 }
 function fillVoiceSelect() {
   const sel = $('#voiceSelect'); if (!sel) return;
@@ -4332,12 +4392,9 @@ function syncAudioSettingsUI() {
   $$('[data-aseg]', body).forEach(sg => $$('button', sg).forEach(b => b.classList.toggle('on', String(A[sg.dataset.aseg]) === b.dataset.v)));
   $$('[data-atoggle]', body).forEach(b => b.querySelector('.switch').classList.toggle('on', !!A[b.dataset.atoggle]));
   $('#volHint').classList.toggle('hidden', A.volume <= 100);
-  $('#vrssBox').classList.toggle('hidden', A.engine !== 'voicerss');
   $('#edgeBox').classList.toggle('hidden', A.engine !== 'edge');
-  const vk = $('#vrssKey'); if (vk && document.activeElement !== vk) vk.value = A.vrssKey || '';
-  const vs = $('#vrssVoice'); if (vs) { const hl = vrssLang(), list = VRSS_VOICES[hl] || []; const want = '<option value="">Default (' + esc(list[0] || 'service default') + ')</option>' + list.map(n => `<option>${esc(n)}</option>`).join(''); if (vs.dataset.hl !== hl) { vs.innerHTML = want; vs.dataset.hl = hl; } vs.value = list.includes(A.vrssVoice) ? A.vrssVoice : ''; }
   const edgeProxy = $('#edgeProxy'); if (edgeProxy && document.activeElement !== edgeProxy) edgeProxy.value = edgeProxyUrl();
-  const edgeVoice = $('#edgeVoice'); if (edgeVoice) edgeVoice.value = EDGE_VOICES.includes(A.edgeVoice) ? A.edgeVoice : EDGE_VOICES[0];
+  fillEdgeVoiceSelect($('#edgeVoiceSearch')?.value || '');
   $$('[data-amb] button', body).forEach(b => b.classList.toggle('on', Ambient.kind === b.dataset.v));
   const av = $('#ambVol'); if (av) { av.value = A.ambVol; av.style.setProperty('--p', (A.ambVol * 100) + '%'); }
   const sel = $('#voiceSelect'); if (sel && document.activeElement !== sel) sel.value = A.voiceURI && Voices.byURI(A.voiceURI) ? A.voiceURI : '';
@@ -4348,12 +4405,12 @@ function syncAudioSettingsUI() {
 function setAudio(key, val) {
   if (A[key] === val) { syncAudioSettingsUI(); return; }
   A[key] = val; saveAudioSettings();
-  if (key === 'voiceURI') { TTS.forceDefault = false; TTS.forceLocal = false; TTS.startFails = 0; }
+  if (key === 'voiceURI' || key === 'voiceLocked') { TTS.forceDefault = false; TTS.forceLocal = false; TTS.startFails = 0; }
   if (['rate', 'pitch', 'volume', 'voiceURI'].includes(key)) TTS.restartSoon();
   if (key === 'hlMode' || key === 'trail') { TTS.trail = []; TTS.unit = null; TTS.word = null; TTS.sylTimers.forEach(clearTimeout); if (TTS.model) { TTS.updateUnit('mode'); TTS.renderHL(); } }
   if (key === 'hlColor') applyAudioColor();
-  if (key === 'engine' || key === 'cadence') { TTS.onlineDown = false; TTS.ssmlDown = false; TTS.vrssVoiceDown = false; if (key === 'engine' && val === 'voicerss' && !(A.vrssKey || CONFIG.tts.voicerssKey)) toast('Paste your free VoiceRSS key below'); if (key === 'engine' && val === 'edge' && !edgeProxyUrl()) toast('Enter your EdgeTTS Worker URL below'); TTS.restartSoon(); }
-  if (key === 'ssml') { TTS.ssmlDown = false; TTS.restartSoon(); }
+  if (key === 'voiceLocked') TTS.restartSoon();
+  if (key === 'engine' || key === 'cadence') { TTS.onlineDown = false; if (key === 'engine' && val === 'edge' && !edgeProxyUrl()) toast('Enter your EdgeTTS Worker URL below'); TTS.restartSoon(); }
   if (key === 'sleep' && TTS.active()) TTS.armSleep();
   if ((key === 'autoScroll' || key === 'autoNext') && val) { TTS.suspended = false; AudioUI.chip(false); TTS.follow(false); }
   syncAudioSettingsUI(); AudioUI.sync();
@@ -4364,7 +4421,8 @@ function bindAudioSettings() {
     const b = e.target.closest('button'); if (!b) return;
     if (b.id === 'voicePreview') { previewVoice(); return; }
     if (b.id === 'edgePreview') { previewVoice(); return; }
-    if (b.id === 'vrssSave') { A.vrssKey = $('#vrssKey').value.trim(); saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); toast(A.vrssKey ? 'VoiceRSS key saved on this device' : 'Key removed'); syncAudioSettingsUI(); TTS.restartSoon(); return; }
+    if (b.id === 'edgeVoicePrev') { stepEdgeVoice(-1); return; }
+    if (b.id === 'edgeVoiceNext') { stepEdgeVoice(1); return; }
     if (b.id === 'edgeSave') {
       const proxy = $('#edgeProxy').value.trim().replace(/\/+$/, '');
       if (proxy && !/^https:\/\//i.test(proxy)) { toast('Enter a secure https:// Worker URL'); return; }
@@ -4380,14 +4438,19 @@ function bindAudioSettings() {
     if (b.dataset.aact === 'reset') { Object.assign(A, A_DEFAULTS); saveAudioSettings(); applyAudioColor(); TTS.restartSoon(); syncAudioSettingsUI(); AudioUI.sync(); toast('TTS settings reset'); return; }
     const sg = b.closest('[data-aseg]'); if (!sg) return;
     const key = sg.dataset.aseg, v = b.dataset.v;
-    if (key === 'preset') { const p = AUDIO_PRESETS[v]; A.preset = v; A.rate = p.rate; A.pitch = p.pitch; A.cadence = !!p.cadence; const best = Voices.best(bookLang(), v === 'story' ? 'deep' : v); A.voiceURI = v === 'auto' || !best ? '' : best.voiceURI; saveAudioSettings(); TTS.restartSoon(); fillVoiceSelect(); syncAudioSettingsUI(); AudioUI.sync(); return; }
+    if (key === 'preset') { const p = AUDIO_PRESETS[v]; A.preset = v; A.rate = p.rate; A.pitch = p.pitch; A.cadence = !!p.cadence; A.voiceLocked = true; const best = Voices.best(bookLang(), v === 'story' ? 'deep' : v); A.voiceURI = v === 'auto' || !best ? '' : best.voiceURI; saveAudioSettings(); TTS.restartSoon(); fillVoiceSelect(); syncAudioSettingsUI(); AudioUI.sync(); return; }
     setAudio(key, key === 'sleep' ? parseInt(v, 10) : v);
   });
-  body.addEventListener('input', e => { const i = e.target; if (i.id === 'ambVol') { Ambient.setVol(+i.value); i.style.setProperty('--p', (i.value * 100) + '%'); return; } if (!i.dataset || !i.dataset.aset) return; setAudio(i.dataset.aset, parseFloat(i.value)); });
+  body.addEventListener('input', e => {
+    const i = e.target;
+    if (i.id === 'edgeVoiceSearch') { fillEdgeVoiceSelect(i.value); return; }
+    if (i.id === 'ambVol') { Ambient.setVol(+i.value); i.style.setProperty('--p', (i.value * 100) + '%'); return; }
+    if (!i.dataset || !i.dataset.aset) return;
+    setAudio(i.dataset.aset, parseFloat(i.value));
+  });
   body.addEventListener('change', e => {
-    if (e.target.id === 'vrssVoice') { A.vrssVoice = e.target.value; saveAudioSettings(); TTS.vrssVoiceDown = false; TTS.restartSoon(); return; }
-    if (e.target.id === 'edgeVoice') { A.edgeVoice = e.target.value; saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); TTS.restartSoon(); return; }
-    if (e.target.id === 'voiceSelect') { A.preset = e.target.value ? 'custom' : 'auto'; setAudio('voiceURI', e.target.value); fillVoiceSelect(); }
+    if (e.target.id === 'edgeVoice') { A.edgeVoice = e.target.value; A.voiceLocked = true; saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); TTS.restartSoon(); syncAudioSettingsUI(); return; }
+    if (e.target.id === 'voiceSelect') { A.preset = e.target.value ? 'custom' : 'auto'; A.voiceLocked = true; setAudio('voiceURI', e.target.value); fillVoiceSelect(); syncAudioSettingsUI(); }
   });
 }
 function speechReport(extra) {
@@ -4457,10 +4520,6 @@ function previewVoice() {
     }).catch(err => toast('EdgeTTS preview failed: ' + err.message));
     return;
   }
-  if (TTS.online()) {
-    const a = new window.Audio(TTS.vrssUrl(sample)); a.volume = clamp(A.volume / 100, 0, 1); a.play().catch(() => toast('VoiceRSS preview failed — check the key'));
-    return;
-  }
   if (!TTS_OK) return;
   if (A.cadence) { speakWithCadence(sample); TTS.unlocked = true; return; }
   try {
@@ -4501,7 +4560,18 @@ function bindAudio() {
   $('#abLyricsButton').addEventListener('click', () => AudioUI.openLyrics());
   $('#abMiniLyrics').addEventListener('click', e => { e.stopPropagation(); AudioUI.openLyrics(); });
   $('#abLyricsClose').addEventListener('click', () => AudioUI.closeLyrics());
+  $('#abLyricsBack').addEventListener('click', () => AudioUI.closeLyrics());
+  $('#abLyricsFullscreen').addEventListener('click', () => { void AudioUI.toggleLyricsFullscreen(); });
+  document.addEventListener('fullscreenchange', () => AudioUI.syncLyricsFullscreen());
+  document.addEventListener('webkitfullscreenchange', () => AudioUI.syncLyricsFullscreen());
   $('#abLyricsPlay').addEventListener('click', () => TTS.toggle());
+  let lyricsTouchY = null;
+  $('#abLyricsHead').addEventListener('pointerdown', e => { lyricsTouchY = e.clientY; });
+  $('#abLyricsHead').addEventListener('pointerup', e => {
+    if (lyricsTouchY != null && e.clientY - lyricsTouchY > 72) AudioUI.closeLyrics();
+    lyricsTouchY = null;
+  });
+  $('#abLyricsHead').addEventListener('pointercancel', () => { lyricsTouchY = null; });
   $('#abLyricsList').addEventListener('click', e => {
     const row = e.target.closest('[data-lyric-index]');
     if (!row || !TTS.model) return;
