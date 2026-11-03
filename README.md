@@ -19,3 +19,7 @@ Commit the generated JavaScript under `build/` with TypeScript changes so the st
 ## Edge read-aloud
 
 Edge read-aloud uses the configured Cloudflare Worker to request Microsoft Edge TTS audio. Audio is cached per book in IndexedDB, decoded into Web Audio buffers, trimmed at silent edges, time-stretched with pitch preservation, and scheduled with a bounded lookahead queue. Word-boundary metadata is used for highlighting when available. The optional storytelling cadence adds subtle sentence-aware SSML pacing and pitch. Tapping the compact player opens expanded listening controls. Transient network and Worker failures are retried; if Microsoft rate-limits Edge requests, Marginalia falls back to device speech to avoid stalling. Microsoft can still rate-limit this unofficial service.
+
+## License
+
+No license. This is a private project and all rights are reserved. The code may not be copied, modified, or redistributed without the author's permission.
