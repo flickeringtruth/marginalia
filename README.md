@@ -6,7 +6,7 @@ An ebook reader that runs entirely in your browser. Import an EPUB, PDF, TXT or 
 
 ## Development
 
-The vocabulary notebook and public-domain book catalog are written in TypeScript. Install the development dependency and rebuild their browser modules after editing:
+The vocabulary notebook, public-domain book catalog, and speed-reader text processor are written in TypeScript. Install the development dependency and rebuild their browser modules after editing:
 
 ```sh
 npm install
@@ -14,7 +14,7 @@ npm run build
 npm test
 ```
 
-Commit the generated JavaScript under `build/` with TypeScript changes so the static app can load it without a build step at runtime. The catalog uses Project Gutenberg's OPDS feed and verifies that each book is marked public domain in the United States before showing its EPUB download link; copyright status can differ in other countries.
+Commit the generated JavaScript under `build/` with TypeScript changes so the static app can load it without a build step at runtime. Speed-reading text uses compact text-node offset spans instead of a per-character offset array, reducing work and memory for long chapters. The catalog uses Project Gutenberg's OPDS feed and verifies that each book is marked public domain in the United States before showing its EPUB download link; copyright status can differ in other countries.
 
 ## Edge read-aloud
 

@@ -9,5 +9,5 @@
     "rootDir": ".",
     "outDir": "build"
   },
-  "include": ["vocabulary.ts", "book-catalog.ts"]
+  "include": ["vocabulary.ts", "book-catalog.ts", "speed-reader-core.ts"]
 }

@@ -4958,48 +4958,23 @@ const AutoScroll = {
 };
 const SpeedReader = {
   active: false, playing: false, hasStarted: false, words: [], durationUnits: [], index: 0, chapter: 0, timer: 0, generation: 0,
-  wpm: clamp(LS.get('reader.speed.wpm', 450), 100, 1200), sourceText: '', lastLoc: null, startLocation: null, contextCollapsed: false, lastSavedAt: 0,
-  readableText(root) {
-    let text = '', offsets = [], sourceOffset = 0;
-    const blocks = new Set(['ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'DL', 'DT', 'DD', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'LI', 'MAIN', 'OL', 'P', 'PRE', 'SECTION', 'TABLE', 'TR', 'UL']);
-    const append = (value, offset) => {
-      text += value;
-      for (let i = 0; i < value.length; i++) offsets.push(offset + i);
-    };
-    const walk = node => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        append(node.nodeValue || '', sourceOffset);
-        sourceOffset += (node.nodeValue || '').length;
-        return;
-      }
-      if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
-      if (node.nodeType === Node.ELEMENT_NODE && blocks.has(node.tagName) && text && !/\s$/.test(text)) append('\n', sourceOffset);
-      for (const child of node.childNodes) walk(child);
-    };
-    walk(root);
-    return { text, offsets };
-  },
-  tokenize(text, offsets) {
-    const matches = Array.from(text.matchAll(/[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*(?:[-‐‑–][\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*)*/gu));
-    return matches.map((match, i) => {
-      const end = match.index + match[0].length, next = matches[i + 1];
-      const between = text.slice(end, next ? next.index : text.length);
-      const punctuation = (between.match(/^\s*([,;:!?…。—–]+["'”’)\]]*)/) || [])[1] || '';
-      return { word: match[0], punctuation, start: offsets ? offsets[match.index] : match.index, textStart: match.index };
-    });
-  },
+  wpm: clamp(LS.get('reader.speed.wpm', 450), 100, 1200), sourceText: '', lastLoc: null, startLocation: null, contextCollapsed: false, lastSavedAt: 0, corePromise: null,
   async loadChapter(ch, offset, generation) {
-    let text, offsets = null;
+    const core = await (this.corePromise || (this.corePromise = import('./build/speed-reader-core.js').catch(error => {
+      this.corePromise = null;
+      throw error;
+    })));
+    let text, spans = null;
     if (App.book.type === 'pdf') {
       const page = await App.book.pdf.getPage(ch + 1), content = await page.getTextContent();
       text = content.items.map(item => item.str + (item.hasEOL ? '\n' : ' ')).join('').replace(/ {2,}/g, ' ');
     } else {
       const root = await App.book.getChapter(ch);
-      const readable = this.readableText(root);
-      text = readable.text; offsets = readable.offsets;
+      const readable = core.collectReadableText(root);
+      text = readable.text; spans = readable.spans;
     }
     if (generation !== this.generation || !this.active) return false;
-    this.chapter = ch; this.sourceText = text; this.words = this.tokenize(text, offsets);
+    this.chapter = ch; this.sourceText = text; this.words = core.tokenizeSpeedText(text, spans);
     this.durationUnits = new Array(this.words.length + 1).fill(0);
     for (let i = this.words.length - 1; i >= 0; i--) {
       const mark = this.words[i].punctuation;
