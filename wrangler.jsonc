@@ -1,5 +1,5 @@
 {
   "name": "marginalia",
-  "main": "edge-proxy-worker.js",
+  "main": "worker.js",
   "compatibility_date": "2025-09-01"
 }

@@ -1,5 +1,7 @@
 /* Marginalia read on site: "Read on site" opens a Project Gutenberg book inside the reader.
    The book is kept only while you read it and is removed when you leave the reader.
+   Gutenberg blocks direct downloads from web pages (this is what fails on iPhone Safari), so the EPUB is
+   fetched through your Cloudflare Worker's /book route (the same Worker address used for Edge voices).
    Loaded from index.html as a module. Remove the script tag to restore the old link. */
 (() => {
   if (window.__marginaliaReadOnSite) return;
@@ -9,13 +11,16 @@
   const toast = msg => {
     const t = $('#toast'); if (!t) return;
     t.textContent = msg; t.classList.add('on');
-    clearTimeout(t._mlT); t._mlT = setTimeout(() => t.classList.remove('on'), 2200);
+    clearTimeout(t._mlT); t._mlT = setTimeout(() => t.classList.remove('on'), 4200);
   };
   const changed = () => document.dispatchEvent(new CustomEvent('catalog:library-updated'));
   const TEMP_KEY = 'marginalia.tempBooks';
   const temps = () => { try { return JSON.parse(localStorage.getItem(TEMP_KEY)) || []; } catch (e) { return []; } };
   const setTemps = l => { try { localStorage.setItem(TEMP_KEY, JSON.stringify(l)); } catch (e) { /* ignore */ } };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const proxyBase = () => {
+    try { return (localStorage.getItem('marginalia.voiceProxy') || '').trim().replace(/\/+$/, ''); } catch (e) { return ''; }
+  };
 
   // Temporary copies stay out of the library list.
   const style = document.createElement('style');
@@ -88,17 +93,44 @@
     return false;
   }
 
+  const isZip = buf => {
+    if (!buf || buf.byteLength < 4) return false;
+    const h = new Uint8Array(buf, 0, 2);
+    return h[0] === 0x50 && h[1] === 0x4B;
+  };
+
+  // Downloads the EPUB through the Worker's /book route. A direct download is tried second,
+  // because Gutenberg usually blocks it in the browser.
+  async function downloadEpub(b) {
+    const base = proxyBase();
+    const urls = [];
+    if (base) urls.push(base + '/book?id=' + b.id);
+    urls.push(b.epub);
+    let status = 0, sawNonEpub = false;
+    for (const url of urls) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) { status = res.status; continue; }
+        const buf = await res.arrayBuffer();
+        if (isZip(buf)) return buf;
+        sawNonEpub = true;
+      } catch (e) { /* blocked by the browser: try the next address */ }
+    }
+    if (!base) {
+      throw new Error('Read on site needs your Cloudflare Worker address (the one used for Edge voices) saved in Settings. Add it, then try again.');
+    }
+    if (sawNonEpub || status === 404) {
+      throw new Error('Your Cloudflare Worker is out of date. Redeploy it from the latest code, then try again.');
+    }
+    throw new Error('Could not download this book' + (status ? ' (HTTP ' + status + ')' : '') + '. Check your connection and try again.');
+  }
+
   async function readOnSite(b) {
     const saved = (await allMeta()).find(m => m.gid === b.id && !m.temp);
     const id = saved ? saved.id : 'site-' + b.id;
     if (!saved) {
-      let res;
-      try { res = await fetch(b.epub); }
-      catch (e) { throw new Error('The browser blocked reading this book here. Try “Save to device” instead.'); }
-      if (!res.ok) throw new Error('Could not load this book (HTTP ' + res.status + ').');
-      const buf = await res.arrayBuffer();
-      const h = new Uint8Array(buf, 0, 2);
-      if (h[0] !== 0x50 || h[1] !== 0x4B) throw new Error('That download is not an EPUB file.');
+      toast('Opening book…');
+      const buf = await downloadEpub(b);
       await tx('files', 'readwrite', s => s.put(buf, id));
       await tx('meta', 'readwrite', s => s.put({
         id, type: 'epub', name: b.title + '.epub', size: buf.byteLength, split: true,
