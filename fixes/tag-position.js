@@ -1,6 +1,13 @@
 /* Moves the ⋯ edit button from the top-left corner (where it covered the EPUB badge)
    to the bottom-right of the cover. Loaded from index.html as a module.
    Remove the script tag to put the button back where it was. */
+/* Also loads the Read on site, cover designs and User settings modules.
+   (index.html is too large to edit remotely, so they are pulled in from here.
+   Modules only run once even if index.html later gets its own script tags.) */
+import './read-on-site.js';
+import './covers.js';
+import './user-data.js';
+
 (() => {
   if (window.__marginaliaTagFix) return;
   window.__marginaliaTagFix = true;
