@@ -1,10 +1,11 @@
-/* Marginalia flux vortex hero (Three.js).
-   A slow, swirling flow-field band at the top of the library. Original shader, not AnimatedWebs' source.
+/* Marginalia flux vortex hero (Three.js) — dark.
+   A slow, swirling flow-field panel at the top of the library. Original shader, not AnimatedWebs' source.
+   Palette and pace follow the requested settings: hue 72, speed 0.77, opacity 0.95, saturation up to full.
    - Loads Three.js r128 from cdnjs only when the library is visible.
    - Pauses when scrolled out of view or when the tab is hidden.
    - Follows your finger or mouse gently.
    - Reduced motion: renders one still frame.
-   - If WebGL is unavailable, the CSS gradient fallback stays.
+   - If WebGL is unavailable, the dark CSS gradient fallback stays.
    Loaded from read-along-size.js. Remove the import to turn it off. */
 (() => {
   if (window.__fluxHero) return;
@@ -13,20 +14,29 @@
   const SRC = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
   const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
+  /* Requested settings */
+  const HUE = 72;          // degrees
+  const SPEED = 0.77;      // time scale
+  const OPACITY = 0.95;    // alpha of the vortex
+  const SATURATION = 1.0;  // 2.00 requested; clamped to 1 (the maximum)
+  const BRIGHTNESS = 1.22; // applied to the glow colours
+
   const css = `
     #library .flux-hero{
       position:relative;overflow:hidden;isolation:isolate;
-      height:clamp(150px,26vh,240px);
+      height:clamp(160px,28vh,250px);
       margin:0 calc(-1 * (var(--sar,0px) + var(--lp))) 0 calc(-1 * (var(--sal,0px) + var(--lp)));
-      background:radial-gradient(120% 90% at 30% 20%,color-mix(in srgb,var(--accent) 26%,var(--bg)) 0%,var(--bg) 70%);
+      background:radial-gradient(120% 90% at 30% 15%,#17142a 0%,#07070d 58%,#040409 100%);
+      border-radius:0 0 26px 26px;
       touch-action:pan-y;
     }
     #library .flux-hero canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;transition:opacity 1.2s ease}
     #library .flux-hero canvas.on{opacity:1}
     #library .flux-hero::after{
-      content:"";position:absolute;left:0;right:0;bottom:0;height:52%;pointer-events:none;z-index:1;
-      background:linear-gradient(to bottom,rgba(0,0,0,0),var(--bg) 92%);
+      content:"";position:absolute;left:0;right:0;bottom:0;height:46%;pointer-events:none;z-index:1;
+      background:linear-gradient(to bottom,rgba(4,4,9,0),rgba(4,4,9,.92) 94%);
     }
+    @media (min-width:1px){#library .flux-hero{border-radius:0 0 26px 26px}}
   `;
   const style = document.createElement('style');
   style.textContent = css;
@@ -44,6 +54,7 @@
     uniform vec3 uA;
     uniform vec3 uB;
     uniform vec3 uC;
+    uniform float uOpacity;
     varying vec2 vUv;
 
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -71,15 +82,19 @@
       vec3 col = mix(uA, uB, band);
       col = mix(col, uC, smoothstep(0.62, 1.0, f) * w.x);
       float vign = smoothstep(1.35, 0.15, r);
-      float alpha = (0.16 + 0.6 * band) * vign;
+      float alpha = (0.12 + 0.62 * band) * vign * uOpacity;
       gl_FragColor = vec4(col * alpha, alpha);   // premultiplied
     }
   `;
 
-  const PALETTE = {
-    light: { a: '#eef6ff', b: '#5fb3ff', c: '#b893ff' },
-    dark:  { a: '#05070f', b: '#0c58c4', c: '#7a46e0' }
-  };
+  /* Dark palette from the requested hue: near-black base, golden-amber glow, a warm highlight. */
+  function palette(THREE) {
+    const base = new THREE.Color(), glow = new THREE.Color(), hi = new THREE.Color();
+    base.setHSL(HUE / 360, 0.35, 0.025);
+    glow.setHSL(HUE / 360, SATURATION * 0.92, Math.min(0.62, 0.42 * BRIGHTNESS));
+    hi.setHSL((HUE + 22) / 360, SATURATION, Math.min(0.7, 0.52 * BRIGHTNESS));
+    return { a: base, b: glow, c: hi };
+  }
 
   let threePromise = null;
   function loadThree() {
@@ -94,6 +109,8 @@
     return threePromise;
   }
 
+  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
   function startHero(hero, THREE) {
     const canvas = document.createElement('canvas');
     hero.appendChild(canvas);
@@ -107,22 +124,22 @@
 
     const scene = new THREE.Scene();
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const pal = PALETTE.light;
+    const pal = palette(THREE);
     const uniforms = {
       uRes: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
       uMouse: { value: new THREE.Vector2(0.5, 0.5) },
-      uA: { value: new THREE.Color(pal.a) },
-      uB: { value: new THREE.Color(pal.b) },
-      uC: { value: new THREE.Color(pal.c) }
+      uA: { value: pal.a },
+      uB: { value: pal.b },
+      uC: { value: pal.c },
+      uOpacity: { value: OPACITY }
     };
     const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false });
     scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat));
 
-    let w = 1, h = 1;
     const resize = () => {
       const r = hero.getBoundingClientRect();
-      w = Math.max(1, Math.round(r.width)); h = Math.max(1, Math.round(r.height));
+      const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
       renderer.setPixelRatio(pr);
       renderer.setSize(w, h, false);
       uniforms.uRes.value.set(w * pr, h * pr);
@@ -140,23 +157,15 @@
     hero.addEventListener('pointermove', onPointer, { passive: true });
     hero.addEventListener('pointerdown', onPointer, { passive: true });
 
-    let dark = null, visible = false, raf = 0, last = 0, time = 0;
-    const applyPalette = () => {
-      const isDark = document.documentElement.classList.contains('dark');
-      if (isDark === dark) return;
-      dark = isDark;
-      const p = isDark ? PALETTE.dark : PALETTE.light;
-      uniforms.uA.value.set(p.a); uniforms.uB.value.set(p.b); uniforms.uC.value.set(p.c);
-    };
+    let visible = false, raf = 0, last = 0, time = 0;
     const frame = now => {
       raf = 0;
       if (!visible || document.hidden) return;
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
       last = now;
-      if (!reduce) time += dt;
+      if (!reduce) time += dt * SPEED;
       uniforms.uTime.value = time;
       uniforms.uMouse.value.lerp(target, reduce ? 1 : 0.06);
-      applyPalette();
       renderer.render(scene, cam);
       raf = requestAnimationFrame(frame);
     };
@@ -169,14 +178,11 @@
     io.observe(hero);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
 
-    // first frame: fade the canvas in once it has painted
     renderer.render(scene, cam);
     requestAnimationFrame(() => canvas.classList.add('on'));
     if (reduce) { visible = true; renderer.render(scene, cam); visible = false; }
     else kick();
   }
-
-  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
   function mount() {
     const lib = document.getElementById('library');
