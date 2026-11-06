@@ -8,6 +8,7 @@ import './ui-feedback.js';
 import './selection-touch.js';
 import './book-open.js';
 import './library-polish.js';
+import './flux-hero.js';
 
 (() => {
   if (window.__marginaliaReadAlongSize) return;
