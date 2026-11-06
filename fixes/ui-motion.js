@@ -2,7 +2,8 @@
    Smooth entrance animations for sheets, lists, library cards, the selection menu and the bookmark button.
    Pure CSS keyframes, so nothing here changes behaviour. Everything is turned off when the phone
    or computer asks for reduced motion.
-   Loaded from ui-polish.js (which read-along-size.js loads). Remove the import to turn it off. */
+   Loaded from ui-polish.js (which read-along-size.js loads). Remove the import to turn it off.
+   Note: the selection menu is deliberately NOT animated here. Its centring transform is owned by selection-touch.js. */
 (() => {
   if (window.__marginaliaMotion) return;
   window.__marginaliaMotion = true;
@@ -12,7 +13,6 @@
 
     @keyframes mlFade{from{opacity:0}to{opacity:1}}
     @keyframes mlUp{from{opacity:0;transform:translate3d(0,28px,0)}to{opacity:1;transform:none}}
-    @keyframes mlPop{from{opacity:0;transform:translate3d(0,8px,0) scale(.97)}to{opacity:1;transform:none}}
     @keyframes mlIn{from{opacity:0;transform:translate3d(0,10px,0)}to{opacity:1;transform:none}}
     @keyframes mlCard{from{opacity:0;transform:translate3d(0,16px,0) scale(.98)}to{opacity:1;transform:none}}
     @keyframes mlSpin{from{transform:rotate(-40deg) scale(.6)}to{transform:none}}
@@ -41,10 +41,7 @@
     /* the bookmark icon lights up with a small spring */
     #mlBookmarkBtn.on svg{animation:mlSpin .5s var(--ease-spring) both}
 
-    /* selection menu pops in above the text */
-    #selMenu.show{animation:mlPop .26s var(--ease-out) both}
-
-    /* library: cover cards cascade in on load, the grid settles */
+    /* library: cover cards cascade in on load */
     #libGrid .card{animation:mlCard .56s var(--ease-out) both}
     #libGrid .card:nth-child(2){animation-delay:50ms}
     #libGrid .card:nth-child(3){animation-delay:100ms}
