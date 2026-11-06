@@ -1,11 +1,15 @@
-/* Marginalia flux vortex hero (Three.js) — dark.
-   A slow, swirling flow-field panel at the top of the library. Original shader, not AnimatedWebs' source.
-   Palette and pace follow the requested settings: hue 72, speed 0.77, opacity 0.95, saturation up to full.
+/* Marginalia flux vortex hero (Three.js) — dark, theme-aware.
+   A slow, swirling flow-field panel at the top of the library.
+   Colours come from CSS variables, so the site can be black now and take other colours later:
+     --flux-bg   base colour of the panel      (default #050507, near black)
+     --flux-hue  hue in degrees for the glow   (default 72, golden amber)
+     --flux-sat  saturation 0 to 1             (default 0.9)
+   Speed 0.77, opacity 0.95, aspect-correct swirl (no stretched ellipse).
    - Loads Three.js r128 from cdnjs only when the library is visible.
    - Pauses when scrolled out of view or when the tab is hidden.
    - Follows your finger or mouse gently.
    - Reduced motion: renders one still frame.
-   - If WebGL is unavailable, the dark CSS gradient fallback stays.
+   - If WebGL is unavailable, the CSS base colour stays.
    Loaded from read-along-size.js. Remove the import to turn it off. */
 (() => {
   if (window.__fluxHero) return;
@@ -14,19 +18,18 @@
   const SRC = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
   const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  /* Requested settings */
-  const HUE = 72;          // degrees
-  const SPEED = 0.77;      // time scale
-  const OPACITY = 0.95;    // alpha of the vortex
-  const SATURATION = 1.0;  // 2.00 requested; clamped to 1 (the maximum)
-  const BRIGHTNESS = 1.22; // applied to the glow colours
+  const SPEED = 0.77;
+  const OPACITY = 0.95;
 
   const css = `
     #library .flux-hero{
+      --flux-bg:#050507;
+      --flux-hue:72;
+      --flux-sat:0.9;
       position:relative;overflow:hidden;isolation:isolate;
       height:clamp(160px,28vh,250px);
       margin:0 calc(-1 * (var(--sar,0px) + var(--lp))) 0 calc(-1 * (var(--sal,0px) + var(--lp)));
-      background:radial-gradient(120% 90% at 30% 15%,#17142a 0%,#07070d 58%,#040409 100%);
+      background:radial-gradient(120% 90% at 30% 15%,color-mix(in srgb,var(--flux-bg) 70%,#fff 30%) 0%,var(--flux-bg) 60%),var(--flux-bg);
       border-radius:0 0 26px 26px;
       touch-action:pan-y;
     }
@@ -34,9 +37,8 @@
     #library .flux-hero canvas.on{opacity:1}
     #library .flux-hero::after{
       content:"";position:absolute;left:0;right:0;bottom:0;height:46%;pointer-events:none;z-index:1;
-      background:linear-gradient(to bottom,rgba(4,4,9,0),rgba(4,4,9,.92) 94%);
+      background:linear-gradient(to bottom,rgba(0,0,0,0),var(--flux-bg) 94%);
     }
-    @media (min-width:1px){#library .flux-hero{border-radius:0 0 26px 26px}}
   `;
   const style = document.createElement('style');
   style.textContent = css;
@@ -70,6 +72,7 @@
       return v;
     }
     void main(){
+      // aspect-correct coordinates: the swirl stays round on a wide band
       vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / min(uRes.x, uRes.y);
       vec2 m = (uMouse - 0.5) * vec2(uRes.x / uRes.y, 1.0) * 0.55;
       vec2 c = uv - m;
@@ -83,16 +86,19 @@
       col = mix(col, uC, smoothstep(0.62, 1.0, f) * w.x);
       float vign = smoothstep(1.35, 0.15, r);
       float alpha = (0.12 + 0.62 * band) * vign * uOpacity;
-      gl_FragColor = vec4(col * alpha, alpha);   // premultiplied
+      gl_FragColor = vec4(col * alpha, alpha);   // premultiplied: sits over any background colour
     }
   `;
 
-  /* Dark palette from the requested hue: near-black base, golden-amber glow, a warm highlight. */
-  function palette(THREE) {
+  /* Palette from the theme variables. Near-black base, glow in the hue, a warmer highlight. */
+  function palette(THREE, hero) {
+    const cs = getComputedStyle(hero);
+    const hue = parseFloat(cs.getPropertyValue('--flux-hue')) || 72;
+    const sat = clamp01(parseFloat(cs.getPropertyValue('--flux-sat')) || 0.9);
     const base = new THREE.Color(), glow = new THREE.Color(), hi = new THREE.Color();
-    base.setHSL(HUE / 360, 0.35, 0.025);
-    glow.setHSL(HUE / 360, SATURATION * 0.92, Math.min(0.62, 0.42 * BRIGHTNESS));
-    hi.setHSL((HUE + 22) / 360, SATURATION, Math.min(0.7, 0.52 * BRIGHTNESS));
+    base.setHSL(hue / 360, 0.3, 0.02);
+    glow.setHSL(hue / 360, sat, 0.44);
+    hi.setHSL(((hue + 22) % 360) / 360, sat, 0.56);
     return { a: base, b: glow, c: hi };
   }
 
@@ -124,7 +130,7 @@
 
     const scene = new THREE.Scene();
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const pal = palette(THREE);
+    const pal = palette(THREE, hero);
     const uniforms = {
       uRes: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
@@ -138,8 +144,7 @@
     scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat));
 
     const resize = () => {
-      const r = hero.getBoundingClientRect();
-      const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+      const w = Math.max(1, hero.clientWidth), h = Math.max(1, hero.clientHeight);
       renderer.setPixelRatio(pr);
       renderer.setSize(w, h, false);
       uniforms.uRes.value.set(w * pr, h * pr);
