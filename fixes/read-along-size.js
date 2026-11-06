@@ -11,6 +11,7 @@ import './library-polish.js';
 import './library-ui.js';
 import './magic-motion.js';
 import './library-depth.js';
+import './library-type.js';
 
 (() => {
   if (window.__marginaliaReadAlongSize) return;
