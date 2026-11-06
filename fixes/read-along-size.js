@@ -3,6 +3,7 @@
    They used to change the book's text size. The book size is still set in Settings.
    Loaded from reader-tools.js as a module. */
 import './ui-polish.js';
+import './ui-motion.js';
 
 (() => {
   if (window.__marginaliaReadAlongSize) return;
