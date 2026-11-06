@@ -4,6 +4,8 @@
    Loaded from reader-tools.js as a module. */
 import './ui-polish.js';
 import './ui-motion.js';
+import './ui-feedback.js';
+import './selection-touch.js';
 
 (() => {
   if (window.__marginaliaReadAlongSize) return;
