@@ -9,6 +9,7 @@ import './selection-touch.js';
 import './book-open.js';
 import './library-polish.js';
 import './library-ui.js';
+import './magic-motion.js';
 
 (() => {
   if (window.__marginaliaReadAlongSize) return;
