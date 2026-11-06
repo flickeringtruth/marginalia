@@ -2,6 +2,8 @@
    Loaded from index.html as a module. Remove the script tag to turn it off.
    Notes: select text or a single word, then tap Note. A note shows as a dotted underline, not a highlight.
    Tap a note in the text to read or edit it. */
+import './read-along-size.js';
+
 (() => {
   if (window.__marginaliaReaderTools) return;
   window.__marginaliaReaderTools = true;
@@ -25,6 +27,16 @@
   const newKey = () => 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const chapterName = (book, ch) => (book.chapters[ch] ? book.chapters[ch].title : 'Section ' + (ch + 1));
   const byPlace = (a, b) => a.ch - b.ch || (a.off ?? a.start ?? 0) - (b.off ?? b.start ?? 0);
+  const pctOf = (book, ch) => {
+    const n = (book.chapters || []).length;
+    return n ? Math.min(100, Math.round((ch / n) * 100)) : 0;
+  };
+  const dateLabel = t => {
+    if (!t) return '';
+    const d = new Date(t), now = new Date();
+    const same = d.toDateString() === now.toDateString();
+    return same ? 'Today' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  };
 
   function here() {
     const r = R(), app = r && r.App;
@@ -151,13 +163,18 @@
     const p = here(); if (!p) return;
     const b = bmList(p.book.id).find(x => x.k === k); if (!b) return;
     overlay(`<div class="ml-head"><h3>Edit bookmark</h3></div>
+      <p class="ml-sub">${esc(chapterName(p.book, b.ch))} · ${pctOf(p.book, b.ch)}%</p>
+      ${b.label ? `<blockquote class="ml-quote ml-quote-soft">${esc(b.label)}</blockquote>` : ''}
       <label class="ml-lbl">Title<input id="mlT" class="ml-input" maxlength="120" placeholder="${esc(chapterName(p.book, b.ch))}" value="${esc(b.title || '')}"></label>
       <label class="ml-lbl">Note<textarea id="mlN" class="ml-area" rows="4" maxlength="2000" placeholder="Write a note…">${esc(b.note || '')}</textarea></label>
       <div class="ml-actions"><button type="button" class="danger" data-del>Delete</button><button type="button" data-cancel>Cancel</button><button type="button" class="primary" data-save>Save</button></div>`,
       (root, close) => {
         root.addEventListener('click', e => {
           if (e.target.closest('[data-cancel]')) { close(); return; }
-          if (e.target.closest('[data-del]')) { saveBm(p.book.id, bmList(p.book.id).filter(x => x.k !== k)); close(); markButton(); renderPanel(); return; }
+          if (e.target.closest('[data-del]')) {
+            if (!window.confirm('Remove this bookmark?')) return;
+            saveBm(p.book.id, bmList(p.book.id).filter(x => x.k !== k)); close(); markButton(); renderPanel(); toast('Bookmark removed'); return;
+          }
           if (e.target.closest('[data-save]')) {
             const list = bmList(p.book.id), x = list.find(y => y.k === k);
             if (x) { x.title = root.querySelector('#mlT').value.trim(); x.note = root.querySelector('#mlN').value.trim(); saveBm(p.book.id, list); }
@@ -207,24 +224,64 @@
     acts.insertBefore(b, acts.firstChild);
   }
 
+  // ---- bookmarks list: search, sort, quiet rows ----
+  let bmSort = 'book';   // 'book' = in reading order, 'new' = newest first
+  let bmQuery = '';
+
+  function bmRowsHtml(book) {
+    const q = bmQuery.trim().toLowerCase();
+    let list = bmList(book.id);
+    if (bmSort === 'new') list = list.slice().sort((a, b) => (b.t || 0) - (a.t || 0));
+    else list = list.slice().sort(byPlace);
+    if (q) list = list.filter(b => [b.title, b.label, b.note, chapterName(book, b.ch)].some(v => String(v || '').toLowerCase().includes(q)));
+    if (!list.length) {
+      return empty(q ? 'No bookmarks match “' + esc(bmQuery.trim()) + '”.' : 'No bookmarks yet. Tap “Bookmark this place” while reading.');
+    }
+    return list.map(b => {
+      const chap = chapterName(book, b.ch);
+      const title = b.title || chap;
+      const meta = [b.title ? chap : null, pctOf(book, b.ch) + '%', dateLabel(b.t)].filter(Boolean).join(' · ');
+      return `<article class="ml-bm">
+        <button type="button" class="ml-bm-main" data-bm-go="${esc(b.k)}">
+          <span class="ml-bm-title">${esc(title)}</span>
+          <span class="ml-bm-meta">${esc(meta)}</span>
+          ${b.label ? `<span class="ml-bm-snip">${esc(b.label)}</span>` : ''}
+          ${b.note ? `<span class="ml-bm-note">${esc(b.note)}</span>` : ''}
+        </button>
+        <button type="button" class="ml-bm-edit" data-bm-edit="${esc(b.k)}" aria-label="Edit bookmark">Edit</button>
+      </article>`;
+    }).join('');
+  }
+  function renderBmList() {
+    const p = here(), box = $('#mlBmList'); if (!p || !box) return;
+    box.innerHTML = bmRowsHtml(p.book);
+    const n = bmList(p.book.id).length, shown = box.querySelectorAll('.ml-bm').length;
+    const count = $('#mlBmCount');
+    if (count) count.textContent = bmQuery.trim() ? shown + ' of ' + n : (n ? n + ' saved' : '');
+  }
+
   // ---- panel: three separate tabs ----
   let tab = 'bm';
   function renderPanel() {
     const p = here(); if (!p) return;
     const book = p.book;
-    const bms = bmList(book.id).sort(byPlace), nts = ntList(book.id).sort(byPlace), hls = (R().HL.list || []).slice().sort(byPlace);
+    const bms = bmList(book.id), nts = ntList(book.id).sort(byPlace), hls = (R().HL.list || []).slice().sort(byPlace);
     $('#mlTabs').innerHTML = [['bm', 'Bookmarks', bms.length], ['nt', 'Notes', nts.length], ['hl', 'Highlights', hls.length]]
       .map(([k, l, n]) => `<button type="button" class="ml-tab${tab === k ? ' on' : ''}" data-tab="${k}">${l}<em>${n}</em></button>`).join('');
     let html = '';
     if (tab === 'bm') {
-      html = '<button type="button" class="ml-primary" id="mlAddBm">Bookmark this place</button>' +
-        (bms.length ? bms.map(b => `<div class="ml-row2"><button type="button" class="ml-go" data-bm-go="${esc(b.k)}">` +
-          `<b>${esc(b.title || chapterName(book, b.ch))}</b>` +
-          `<span>${esc(b.title ? chapterName(book, b.ch) + (b.label ? ' · ' : '') : '')}${esc(b.label || '')}</span>` +
-          (b.note ? `<small>${esc(b.note)}</small>` : '') + '</button>' +
-          `<button type="button" class="ml-ic" data-bm-edit="${esc(b.k)}" aria-label="Edit bookmark">✎</button>` +
-          `<button type="button" class="ml-ic" data-bm-rm="${esc(b.k)}" aria-label="Remove bookmark">×</button></div>`).join('')
-          : empty('No bookmarks yet. Tap “Bookmark this place” while reading.'));
+      html = `<div class="ml-bm-tools">
+          <button type="button" class="ml-primary" id="mlAddBm">Bookmark this place</button>
+          ${bms.length ? `<div class="ml-bm-bar">
+            <input id="mlBmSearch" class="ml-bm-search" type="search" placeholder="Search bookmarks" value="${esc(bmQuery)}" aria-label="Search bookmarks">
+            <div class="ml-seg" role="group" aria-label="Sort bookmarks">
+              <button type="button" data-bm-sort="book" class="${bmSort === 'book' ? 'on' : ''}">In order</button>
+              <button type="button" data-bm-sort="new" class="${bmSort === 'new' ? 'on' : ''}">Newest</button>
+            </div>
+            <span class="ml-bm-count" id="mlBmCount"></span>
+          </div>` : ''}
+        </div>
+        <div id="mlBmList"></div>`;
     } else if (tab === 'nt') {
       html = nts.length ? nts.map(n => `<div class="ml-row2 ml-notecard"><button type="button" class="ml-go" data-nt-go="${esc(n.k)}">` +
         `<q>${esc(n.text)}</q>${n.note ? `<small>${esc(n.note)}</small>` : '<small class="ml-faint">No note text yet</small>'}` +
@@ -239,6 +296,7 @@
         : empty('No highlights yet. Select text and pick a colour.');
     }
     $('#mlBody').innerHTML = html;
+    if (tab === 'bm') renderBmList();
   }
   function openPanel() {
     if (!here()) return;
@@ -326,16 +384,19 @@
       <button type="button" class="ml-soft" id="mlExport">Export as Markdown</button>
     </div>`;
     document.body.appendChild(panel);
+    panel.addEventListener('input', e => {
+      if (e.target.id === 'mlBmSearch') { bmQuery = e.target.value; renderBmList(); }
+    });
     panel.addEventListener('click', e => {
       if (e.target === panel || e.target.closest('[data-x]')) { closePanel(); return; }
       const t = e.target.closest('[data-tab]'); if (t) { tab = t.dataset.tab; renderPanel(); return; }
+      const s = e.target.closest('[data-bm-sort]');
+      if (s) { bmSort = s.dataset.bmSort; panel.querySelectorAll('[data-bm-sort]').forEach(x => x.classList.toggle('on', x === s)); renderBmList(); return; }
       if (e.target.closest('#mlAddBm')) { addBookmark(); return; }
       if (e.target.closest('#mlExport')) { exportAll(); return; }
       const bg = e.target.closest('[data-bm-go]');
       if (bg) { const p = here(), b = p && bmList(p.book.id).find(x => x.k === bg.dataset.bmGo); if (b) jumpTo(b.ch, b.off); return; }
       const be = e.target.closest('[data-bm-edit]'); if (be) { editBookmark(be.dataset.bmEdit); return; }
-      const br = e.target.closest('[data-bm-rm]');
-      if (br) { const p = here(); if (p) { saveBm(p.book.id, bmList(p.book.id).filter(x => x.k !== br.dataset.bmRm)); markButton(); renderPanel(); } return; }
       const ng = e.target.closest('[data-nt-go]');
       if (ng) { const p = here(), n = p && ntList(p.book.id).find(x => x.k === ng.dataset.ntGo); if (n) jumpTo(n.ch, n.start); return; }
       const ne = e.target.closest('[data-nt-edit]'); if (ne) { openNoteEditor(ne.dataset.ntEdit, false); return; }
@@ -368,6 +429,22 @@
     .ml-tab.on{background:var(--sheet);box-shadow:0 1px 4px rgba(0,0,0,.15)}
     .ml-primary,.ml-soft{display:block;width:100%;min-height:46px;border-radius:12px;border:0;font:inherit;font-weight:600;margin:8px 0;background:var(--accent);color:#fff}
     .ml-soft{background:var(--card);color:var(--fg);margin-top:14px}
+    .ml-sub{margin:-4px 0 6px;color:var(--muted);font-size:13px}
+    .ml-bm-tools{margin-bottom:4px}
+    .ml-bm-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 2px}
+    .ml-bm-search{flex:1 1 160px;min-width:0;height:40px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:16px;padding:0 12px;box-sizing:border-box}
+    .ml-seg{display:flex;background:var(--card);border-radius:10px;padding:3px;gap:3px}
+    .ml-seg button{min-height:34px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--muted);font:inherit;font-size:13px;font-weight:600}
+    .ml-seg button.on{background:var(--sheet);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.14)}
+    .ml-bm-count{flex-basis:100%;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+    .ml-bm{display:flex;align-items:stretch;border-top:.5px solid var(--line)}
+    .ml-bm-main{flex:1;min-width:0;text-align:left;padding:14px 6px 14px 4px;background:none;border:0;color:var(--fg);font:inherit;display:flex;flex-direction:column;gap:3px}
+    .ml-bm-title{font-family:"Iowan Old Style",Georgia,serif;font-size:16px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ml-bm-meta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ml-bm-snip{font-family:"Iowan Old Style",Georgia,serif;font-style:italic;font-size:14px;line-height:1.4;color:var(--fg);opacity:.78;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .ml-bm-note{font-size:13px;line-height:1.45;color:var(--muted);margin-top:4px;padding-left:10px;border-left:2px solid var(--line);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+    .ml-bm-edit{align-self:center;flex:none;min-height:44px;padding:0 10px;margin-left:4px;border:0;border-radius:10px;background:none;color:var(--accent);font:inherit;font-size:14px;font-weight:600}
+    .ml-bm-edit:active{background:var(--card)}
     .ml-row2{display:flex;align-items:stretch;border-top:.5px solid var(--line)}
     .ml-go{flex:1;min-width:0;text-align:left;padding:12px 4px;background:none;border:0;color:var(--fg);font:inherit}
     .ml-go b,.ml-go span,.ml-go small{display:block;overflow:hidden;text-overflow:ellipsis}
@@ -377,6 +454,7 @@
     .ml-go q,.ml-quote{font-family:"Iowan Old Style",Georgia,serif;font-size:15px;line-height:1.4;quotes:"“" "”";color:var(--fg)}
     .ml-go q{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;border-bottom:2px dotted var(--accent);padding-bottom:2px;display:block}
     .ml-quote{margin:0 0 8px;padding:6px 0 6px 12px;border-left:3px solid var(--accent)}
+    .ml-quote-soft{border-left-color:var(--line);color:var(--muted);font-style:italic}
     .ml-noteicon{color:var(--accent)}
     .ml-faint{color:var(--muted)!important;font-style:italic}
     .ml-dot{display:inline-block;width:10px;height:10px;border-radius:5px;margin-right:6px;vertical-align:middle}
