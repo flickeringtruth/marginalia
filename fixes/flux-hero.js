@@ -1,31 +1,42 @@
-/* Marginalia flux vortex hero (Three.js) — dark, theme-aware.
+/* Marginalia flux vortex hero (Three.js) — dark, theme-aware, user-controlled.
    A slow, swirling flow-field panel at the top of the library.
-   Colours come from CSS variables, so the site can be black now and take other colours later:
-     --flux-bg   base colour of the panel      (default #050507, near black)
-     --flux-hue  hue in degrees for the glow   (default 72, golden amber)
-     --flux-sat  saturation 0 to 1             (default 0.9)
-   Speed 0.77, opacity 0.95, aspect-correct swirl (no stretched ellipse).
-   - Loads Three.js r128 from cdnjs only when the library is visible.
+   Settings › Library hero lets you:
+     - show or hide the hero,
+     - change hue, saturation, speed, opacity and base colour,
+     - reset to the default look.
+   Choices are saved on this device and apply live.
+   - Loads Three.js r128 from cdnjs only when the library is visible and the hero is on.
    - Pauses when scrolled out of view or when the tab is hidden.
    - Follows your finger or mouse gently.
    - Reduced motion: renders one still frame.
-   - If WebGL is unavailable, the CSS base colour stays.
+   - If WebGL is unavailable, the base colour stays.
    Loaded from read-along-size.js. Remove the import to turn it off. */
 (() => {
   if (window.__fluxHero) return;
   window.__fluxHero = true;
 
   const SRC = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+  const KEY = 'marginalia.flux';
   const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  const SPEED = 0.77;
-  const OPACITY = 0.95;
+  const DEFAULTS = { on: true, hue: 72, sat: 0.9, speed: 0.77, opacity: 0.95, bg: '#050507' };
+  const LIMITS = { hue: [0, 360, 1], sat: [0, 1, 0.01], speed: [0, 2, 0.01], opacity: [0.2, 1, 0.01] };
+
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  function load() {
+    try {
+      const s = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(KEY) || '{}'));
+      s.hue = clamp(+s.hue, 0, 360); s.sat = clamp(+s.sat, 0, 1); s.speed = clamp(+s.speed, 0, 2);
+      s.opacity = clamp(+s.opacity, 0.2, 1);
+      if (!/^#[0-9a-f]{6}$/i.test(s.bg)) s.bg = DEFAULTS.bg;
+      return s;
+    } catch (e) { return Object.assign({}, DEFAULTS); }
+  }
+  let S = load();
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
 
   const css = `
     #library .flux-hero{
-      --flux-bg:#050507;
-      --flux-hue:72;
-      --flux-sat:0.9;
       position:relative;overflow:hidden;isolation:isolate;
       height:clamp(160px,28vh,250px);
       margin:0 calc(-1 * (var(--sar,0px) + var(--lp))) 0 calc(-1 * (var(--sal,0px) + var(--lp)));
@@ -33,12 +44,15 @@
       border-radius:0 0 26px 26px;
       touch-action:pan-y;
     }
+    #library .flux-hero[hidden]{display:none}
     #library .flux-hero canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;transition:opacity 1.2s ease}
     #library .flux-hero canvas.on{opacity:1}
     #library .flux-hero::after{
       content:"";position:absolute;left:0;right:0;bottom:0;height:46%;pointer-events:none;z-index:1;
       background:linear-gradient(to bottom,rgba(0,0,0,0),var(--flux-bg) 94%);
     }
+    .flux-group .flux-val{min-width:54px;text-align:right;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+    .flux-group input[type=color]{width:44px;height:34px;border:0;padding:0;background:none;border-radius:8px;cursor:pointer}
   `;
   const style = document.createElement('style');
   style.textContent = css;
@@ -72,7 +86,6 @@
       return v;
     }
     void main(){
-      // aspect-correct coordinates: the swirl stays round on a wide band
       vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / min(uRes.x, uRes.y);
       vec2 m = (uMouse - 0.5) * vec2(uRes.x / uRes.y, 1.0) * 0.55;
       vec2 c = uv - m;
@@ -90,16 +103,17 @@
     }
   `;
 
-  /* Palette from the theme variables. Near-black base, glow in the hue, a warmer highlight. */
-  function palette(THREE, hero) {
-    const cs = getComputedStyle(hero);
-    const hue = parseFloat(cs.getPropertyValue('--flux-hue')) || 72;
-    const sat = clamp01(parseFloat(cs.getPropertyValue('--flux-sat')) || 0.9);
-    const base = new THREE.Color(), glow = new THREE.Color(), hi = new THREE.Color();
-    base.setHSL(hue / 360, 0.3, 0.02);
-    glow.setHSL(hue / 360, sat, 0.44);
-    hi.setHSL(((hue + 22) % 360) / 360, sat, 0.56);
+  /* Colours from the user's settings. Base is the chosen background, glow follows the hue. */
+  function palette(THREE, s) {
+    const base = new THREE.Color(s.bg);
+    const glow = new THREE.Color().setHSL(s.hue / 360, s.sat, 0.44);
+    const hi = new THREE.Color().setHSL(((s.hue + 22) % 360) / 360, s.sat, 0.56);
     return { a: base, b: glow, c: hi };
+  }
+  function cssVars(hero, s) {
+    hero.style.setProperty('--flux-bg', s.bg);
+    hero.style.setProperty('--flux-hue', String(s.hue));
+    hero.style.setProperty('--flux-sat', String(s.sat));
   }
 
   let threePromise = null;
@@ -117,6 +131,7 @@
 
   function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
+  let runtime = null;   // { apply(state) } once the renderer is running
   function startHero(hero, THREE) {
     const canvas = document.createElement('canvas');
     hero.appendChild(canvas);
@@ -130,15 +145,13 @@
 
     const scene = new THREE.Scene();
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const pal = palette(THREE, hero);
+    const pal = palette(THREE, S);
     const uniforms = {
       uRes: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
       uMouse: { value: new THREE.Vector2(0.5, 0.5) },
-      uA: { value: pal.a },
-      uB: { value: pal.b },
-      uC: { value: pal.c },
-      uOpacity: { value: OPACITY }
+      uA: { value: pal.a }, uB: { value: pal.b }, uC: { value: pal.c },
+      uOpacity: { value: S.opacity }
     };
     const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false });
     scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat));
@@ -153,7 +166,6 @@
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
     if (ro) ro.observe(hero);
 
-    // pointer: a gentle pull toward the finger or cursor
     const target = new THREE.Vector2(0.5, 0.5);
     const onPointer = e => {
       const r = hero.getBoundingClientRect();
@@ -168,7 +180,7 @@
       if (!visible || document.hidden) return;
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
       last = now;
-      if (!reduce) time += dt * SPEED;
+      if (!reduce) time += dt * S.speed;
       uniforms.uTime.value = time;
       uniforms.uMouse.value.lerp(target, reduce ? 1 : 0.06);
       renderer.render(scene, cam);
@@ -187,21 +199,96 @@
     requestAnimationFrame(() => canvas.classList.add('on'));
     if (reduce) { visible = true; renderer.render(scene, cam); visible = false; }
     else kick();
+
+    // live updates from Settings
+    runtime = {
+      apply(s) {
+        const p = palette(THREE, s);
+        uniforms.uA.value.copy(p.a); uniforms.uB.value.copy(p.b); uniforms.uC.value.copy(p.c);
+        uniforms.uOpacity.value = s.opacity;
+        if (reduce) renderer.render(scene, cam);
+      }
+    };
+  }
+
+  let hero = null, loading = false;
+  function ensureRunning() {
+    if (!hero || !S.on || runtime || loading) return;
+    loading = true;
+    loadThree()
+      .then(THREE => { if (S.on && !runtime) startHero(hero, THREE); })
+      .catch(err => console.warn('flux hero:', err))
+      .finally(() => { loading = false; });
+  }
+
+  function applySettings() {
+    if (!hero) return;
+    hero.hidden = !S.on;
+    cssVars(hero, S);
+    if (runtime) runtime.apply(S);
+    if (S.on) ensureRunning();
+  }
+
+  /* Settings › Library hero */
+  function injectSettings() {
+    const body = document.getElementById('settingsBody');
+    if (!body || body.querySelector('[data-flux-group]')) return;
+    const group = document.createElement('div');
+    group.className = 'grp flux-group';
+    group.setAttribute('data-flux-group', '');
+    group.innerHTML = `
+      <h3>Library hero</h3>
+      <button class="switch-row" type="button" data-flux-on>Show the swirling hero<span class="switch"></span></button>
+      <label class="row"><span>Hue</span><input type="range" data-flux="hue" min="0" max="360" step="1" aria-label="Hue"><output class="flux-val" data-out="hue"></output></label>
+      <label class="row"><span>Saturation</span><input type="range" data-flux="sat" min="0" max="1" step="0.01" aria-label="Saturation"><output class="flux-val" data-out="sat"></output></label>
+      <label class="row"><span>Speed</span><input type="range" data-flux="speed" min="0" max="2" step="0.01" aria-label="Speed"><output class="flux-val" data-out="speed"></output></label>
+      <label class="row"><span>Opacity</span><input type="range" data-flux="opacity" min="0.2" max="1" step="0.01" aria-label="Opacity"><output class="flux-val" data-out="opacity"></output></label>
+      <label class="row"><span>Background</span><input type="color" data-flux="bg" aria-label="Hero background colour"><span style="flex:1"></span></label>
+      <button class="wide-btn" type="button" data-flux-reset>Reset hero</button>
+      <p class="hint">Saved on this device. Hue 72 is golden amber; dark backgrounds show the swirl best.</p>`;
+    body.appendChild(group);
+
+    const sync = () => {
+      group.querySelector('[data-flux-on] .switch').classList.toggle('on', S.on);
+      group.querySelectorAll('[data-flux]').forEach(i => {
+        const k = i.dataset.flux;
+        i.value = S[k];
+        if (LIMITS[k]) {
+          const [a, b] = LIMITS[k];
+          i.style.setProperty('--p', ((S[k] - a) / (b - a) * 100) + '%');
+          group.querySelector('[data-out="' + k + '"]').textContent = k === 'hue' ? Math.round(S[k]) + '°' : (+S[k]).toFixed(2);
+        }
+      });
+    };
+    sync();
+
+    group.addEventListener('input', e => {
+      const i = e.target.closest('[data-flux]'); if (!i) return;
+      const k = i.dataset.flux;
+      S[k] = k === 'bg' ? i.value : parseFloat(i.value);
+      save(); sync(); applySettings();
+    });
+    group.addEventListener('click', e => {
+      if (e.target.closest('[data-flux-on]')) { S.on = !S.on; save(); sync(); applySettings(); return; }
+      if (e.target.closest('[data-flux-reset]')) { S = Object.assign({}, DEFAULTS); save(); sync(); applySettings(); }
+    });
   }
 
   function mount() {
     const lib = document.getElementById('library');
     if (!lib || lib.querySelector('.flux-hero')) return;
-    const hero = document.createElement('div');
+    hero = document.createElement('div');
     hero.className = 'flux-hero';
     hero.setAttribute('aria-hidden', 'true');
+    cssVars(hero, S);
+    hero.hidden = !S.on;
     lib.insertBefore(hero, lib.firstChild);
+    injectSettings();
 
-    // Only load Three.js while the library is actually on screen.
+    // Only load Three.js when the hero is on and the library is on screen.
     const io = new IntersectionObserver(entries => {
       if (!entries.some(en => en.isIntersecting)) return;
-      io.disconnect();
-      loadThree().then(THREE => startHero(hero, THREE)).catch(err => console.warn('flux hero:', err));
+      ensureRunning();
     }, { threshold: 0 });
     io.observe(hero);
   }
