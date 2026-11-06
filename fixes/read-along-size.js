@@ -7,6 +7,7 @@ import './ui-motion.js';
 import './ui-feedback.js';
 import './selection-touch.js';
 import './book-open.js';
+import './library-polish.js';
 
 (() => {
   if (window.__marginaliaReadAlongSize) return;
