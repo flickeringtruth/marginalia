@@ -6,9 +6,12 @@
     "build": "tsc --project tsconfig.json",
     "build:vocabulary": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
-    "test": "npm run build && node --test vocabulary.test.js speed-reader-core.test.js"
+    "test": "npm run build && node --test vocabulary.test.js speed-reader-core.test.js",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium webkit"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "typescript": "^5.8.3"
   }
 }
