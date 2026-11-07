@@ -3,6 +3,8 @@
    Loaded from index.html as a module. Remove the script tag to turn it off. */
 (() => {
   if (window.__marginaliaLibrary) return;
+  // The v2 UI (localStorage "marginalia.ui" === "v2") replaces this layer: src/ui/library.ts.
+  try { if (localStorage.getItem('marginalia.ui') === 'v2') return; } catch (e) { /* storage blocked: old UI */ }
   window.__marginaliaLibrary = true;
 
   const KEY = 'marginalia.library';

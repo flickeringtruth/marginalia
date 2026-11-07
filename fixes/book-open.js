@@ -296,6 +296,18 @@
   }
   injectSetting();
 
+  // The v2 library (src/ui/library.ts) opens books by their real id through this hook,
+  // instead of the title lookup below.
+  window.__marginaliaBookOpenFly = (btn, id) => {
+    if (busy) return Promise.resolve();
+    busy = true;
+    if (reduce || !enabled()) return Promise.resolve().then(() => window.__reader.openBook(id)).finally(() => { busy = false; });
+    return fly(btn, id).catch(err => {
+      console.error(err);
+      document.body.classList.remove('mlb-opening');
+    }).then(() => { busy = false; });
+  };
+
   document.addEventListener('click', e => {
     if (bypass) return;
     const btn = e.target && e.target.closest ? e.target.closest('#libGrid .cover-btn') : null;
