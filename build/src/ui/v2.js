@@ -8,6 +8,7 @@ import { installTokens } from './tokens.js';
 import { installComponents } from './components.js';
 import { portalRoot } from './overlay.js';
 import { mountLibrary } from './library.js';
+import { mountReader } from './reader/index.js';
 const KEY = 'marginalia.ui';
 const isOn = () => { try {
     return localStorage.getItem(KEY) === 'v2';
@@ -55,6 +56,7 @@ function start() {
     installComponents();
     portalRoot();
     mountLibrary();
+    mountReader();
 }
 if (document.readyState === 'loading')
     document.addEventListener('DOMContentLoaded', start);

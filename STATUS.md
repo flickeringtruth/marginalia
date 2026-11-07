@@ -55,3 +55,24 @@
 **Check on a real iPhone:** the header clears the notch and the content clears the home indicator, in portrait and landscape; sheets sit above the home indicator; scrolling the library while Safari's toolbar collapses and expands (dynamic viewport) leaves no gap or jump; the Back swipe closes an open sheet first; covers tap through to the opening animation.
 
 **Worker redeploy required: NO** (session 2 did not change the Worker).
+
+## Session 3: Reader on v2 (2026-11-07, branch `ui-v2/03-reader`)
+
+**What changed**
+- `docs/reader-controls.md`: every reader control, its v2 replacement, the handler it calls, and whether it was verified.
+- `src/ui/reader/`: v2 top and bottom bars (they follow the engine's tap and auto-hide, and set the engine's reserved space so text never sits under them), a Contents sheet (contents, bookmarks, notes, highlights, Markdown export), a Settings sheet (every Appearance and Audio setting, including the 3D curl page turn, session 1 voices and downloads, and the v2 switch), a player sheet and a mini player docked above the bottom bar, the More sheet, and a selection menu positioned with Floating UI.
+- `vendor/floating-ui/` (MIT, 1.8.0), logged in THIRD_PARTY_NOTICES.md.
+- Engine (`index.html`): small shared functions and events only (`docs/reader-api.md`). The engine's Settings, Contents and More functions hand off to v2 when it is on, so keyboard shortcuts open the v2 sheets.
+- With v2 on, `read-along-size.js` also skips ui-polish, ui-motion, ui-feedback and selection-touch. `reader-tools.js` keeps painting notes into the text but gives its panel and editors to v2. No files deleted.
+- `dev/reader-check.js` and `dev/reader-controls-check.js` are test helpers.
+
+**Controls table:** all rows verified (yes) at 390 px and 1280 px. Overlap check: zero at 320/390/430/768/1280 px and 844×390, with every sheet, the player and the selection menu open. tsc: zero errors. Console clean with v2 on and off. With v2 off: library, open book, page turns, read-aloud, Discover and the old sheets all work as before.
+
+**Known issues**
+- The engine's tool screens (dictionary, AI chat, speed reader, auto-scroll controls, vocabulary, PDF convert, message sheets) keep their old look and some text-symbol buttons. They open from v2 at the right layer.
+- In landscape on a phone with read-aloud on, bars plus mini player leave about 210 px for text. Immersive bars gives more room.
+- Immersive bars intentionally float over text (user option).
+
+**Check on a real iPhone:** the selection menu opens below the selection with no iOS callout; the bars and mini player clear the notch and home indicator; audio keeps playing in the background and on the lock screen; the 3D curl page turn stays smooth.
+
+**Worker redeploy required: NO**
