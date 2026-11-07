@@ -14,14 +14,14 @@
 <script>try{if(localStorage.getItem('marginalia.ui')==='v2')document.documentElement.classList.add('ui-v2')}catch(e){}</script>
 <style>html.ui-v2 #library{display:none!important}</style>
 <!-- App theme (v2 chrome). Set before first paint so the screen never flashes; the reading-page themes are separate.
-     Contrast (WCAG): text on bg 15:1 dark / 17:1 light; muted 6.5:1 / 5.2:1; --app-accent-text is the accent tuned for small text;
-     --app-on-accent text on the accent fill is 5.9:1. -->
+     Contrast (WCAG AA, every text token on bg, surface and raised): text 11.8-18.4:1; muted 4.8-6.4:1 dark, 4.8-5.5:1 light;
+     --app-accent-text is the accent tuned for small text (4.9-5.9:1 light, 5.1-6.9:1 dark); --app-on-accent on the accent fill is 5.9:1. -->
 <script>try{var __t=localStorage.getItem('marginalia.appTheme');document.documentElement.setAttribute('data-app-theme',__t==='light'?'light':'dark');if(localStorage.getItem('marginalia.flux')==='0')document.documentElement.setAttribute('data-flux','off')}catch(e){document.documentElement.setAttribute('data-app-theme','dark')}</script>
 <style id="app-theme-tokens">
 :root,:root[data-app-theme="dark"]{color-scheme:dark;--app-bg:#1f1e1d;--app-surface:#2b2a28;--app-raised:#353431;--app-border:#3d3c39;--app-text:#faf9f5;--app-muted:#a3a19b;
   --app-accent:#d97757;--app-accent-text:#e8906f;--app-on-accent:#141413;--app-danger:#ff7a70;--app-ok:#5fbf7f;--app-scrim:rgba(0,0,0,.6);--app-shadow:rgba(0,0,0,.55)}
 :root[data-app-theme="light"]{color-scheme:light;--app-bg:#faf9f5;--app-surface:#ffffff;--app-raised:#f2f0e9;--app-border:#e5e3dc;--app-text:#141413;--app-muted:#6b6964;
-  --app-accent:#d97757;--app-accent-text:#b4532f;--app-on-accent:#141413;--app-danger:#c62828;--app-ok:#1e7a3c;--app-scrim:rgba(20,20,19,.4);--app-shadow:rgba(20,20,19,.22)}
+  --app-accent:#d97757;--app-accent-text:#a94c2a;--app-on-accent:#141413;--app-danger:#c62828;--app-ok:#1e7a3c;--app-scrim:rgba(20,20,19,.4);--app-shadow:rgba(20,20,19,.22)}
 html.ui-v2,html.ui-v2 body{background-color:var(--app-bg);background-image:none}
 </style>
 <style>
