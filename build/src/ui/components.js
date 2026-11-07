@@ -65,6 +65,9 @@ const CSS = `
 /* Slider */
 .v2-slider{display:grid;grid-template-columns:1fr auto;align-items:center;gap:2px var(--v2-s3);margin-top:var(--v2-s3);font:500 var(--v2-t-base)/1.3 var(--v2-sans);color:var(--v2-fg)}
 .v2-slider input{grid-column:1 / -1;width:100%;min-height:var(--v2-tap);accent-color:var(--v2-accent)}
+/* The engine sets touch-action:none on every range input. In a scrolling sheet that stops a swipe that starts on a slider
+   from scrolling at all, so sliders here only claim horizontal drags. */
+.v2-slider input,#v2-portal input[type=range]{touch-action:pan-y}
 .v2-slider output{color:var(--v2-muted);font-variant-numeric:tabular-nums;font-size:var(--v2-t-sm)}
 
 /* Segmented */
