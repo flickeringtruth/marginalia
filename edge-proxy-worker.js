@@ -2,7 +2,19 @@
    Receives { text, voice, rate } from the Marginalia site and returns an MP3 made by Microsoft Edge's
    neural voices. Needed because Microsoft's server refuses direct connections from web pages.
    The connection approach and token routine follow the Readest project (AGPL-3.0),
-   https://github.com/readest/readest — so this file, and Marginalia, should be AGPL-3.0 too. */
+   https://github.com/readest/readest — so this file, and Marginalia, should be AGPL-3.0 too.
+
+   Caching: the same text + voice + rate + pitch always gives the same audio, so successful
+   responses are stored in the Cloudflare edge cache (caches.default) for a year, keyed by a
+   SHA-256 hash of those values. A repeat request is answered from the cache without calling
+   Microsoft (response header X-TTS-Cache: HIT). Errors and 429s are never cached.
+   Note: Cloudflare does not keep this cache for Workers served from a *.workers.dev address;
+   there the cache step is skipped and every request goes to Microsoft. Use a custom domain
+   route for the cache to work.
+
+   Honesty note: this is Microsoft's unofficial Edge read-aloud service, not a public API.
+   Microsoft can throttle or block it at any time. Caching reduces how often it is called,
+   but it cannot prevent throttling. On a 429 the Worker passes Retry-After to the reader. */
 import { connect } from 'cloudflare:sockets';
 
 const ALLOWED_ORIGINS = ['https://flickeringtruth.github.io'];
@@ -12,6 +24,10 @@ const API_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
 const CHROMIUM_FULL_VERSION = '143.0.3650.75';
 const MAX_CHARS = 1200;
 const TIMEOUT_MS = 20000;
+const OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3';
+const CACHE_VERSION = 'v1';
+const CACHE_MAX_AGE = 31536000; // one year; the audio for a given key never changes
+const DEFAULT_RETRY_AFTER = '5';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -206,7 +222,7 @@ async function synthesize(text, voice, rate, pitch, signal) {
   try {
     const date = new Date().toString();
     await ws.send(lines({ 'Content-Type': 'application/json; charset=utf-8', Path: 'speech.config', 'X-Timestamp': date }) + '\r\n' +
-    JSON.stringify({ context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: true }, outputFormat: 'audio-24khz-48kbitrate-mono-mp3' } } } }));
+    JSON.stringify({ context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: true }, outputFormat: OUTPUT_FORMAT } } } }));
     const lang = voice.split('-').slice(0, 2).join('-');
     const pct = Math.round((rate - 1) * 100);
     const pitchHz = Math.round((pitch - 1) * 24);
@@ -243,11 +259,21 @@ async function synthesize(text, voice, rate, pitch, signal) {
   } finally { ws.close(); }
 }
 
+/* The edge cache only stores GET requests, so the POST body is turned into a synthetic GET key. */
+async function cacheKeyFor(requestUrl, voice, rate, pitch, text) {
+  const data = enc.encode(JSON.stringify([CACHE_VERSION, voice, rate, pitch, OUTPUT_FORMAT, text]));
+  const hash = toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', data)));
+  return new Request(new URL(requestUrl).origin + '/__tts-cache/' + CACHE_VERSION + '/' + hash, { method: 'GET' });
+}
+function edgeCache() {
+  try { return typeof caches !== 'undefined' && caches.default ? caches.default : null; } catch (e) { return null; }
+}
+
 export default {
-  async fetch(request) {
+  async fetch(request, env, ctx) {
     const origin = request.headers.get('Origin') || '';
     const allowed = ALLOWED_ORIGINS.includes(origin);
-    const cors = allowed ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Expose-Headers': 'Retry-After, X-TTS-Word-Boundaries', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : { Vary: 'Origin' };
+    const cors = allowed ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Expose-Headers': 'Retry-After, X-TTS-Word-Boundaries, X-TTS-Cache', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : { Vary: 'Origin' };
     const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
     if (request.method === 'OPTIONS') return new Response(null, { status: allowed ? 204 : 403, headers: cors });
@@ -263,6 +289,22 @@ export default {
     const pitch = Math.min(1.6, Math.max(0.5, Number(body.pitch) || 1));
     if (!text || text.length > MAX_CHARS) return json({ error: 'text must be 1 to ' + MAX_CHARS + ' characters' }, 400);
     if (!/^[A-Za-z0-9-]{5,64}Neural$/.test(voice)) return json({ error: 'unknown voice name' }, 400);
+
+    // Answer repeats from the edge cache. CORS headers are added per request, never stored.
+    const cache = edgeCache();
+    let cacheKey = null;
+    if (cache) {
+      try {
+        cacheKey = await cacheKeyFor(request.url, voice, rate, pitch, text);
+        const hit = await cache.match(cacheKey);
+        if (hit) {
+          const headers = new Headers(hit.headers);
+          for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+          headers.set('X-TTS-Cache', 'HIT');
+          return new Response(hit.body, { status: 200, headers });
+        }
+      } catch (e) { cacheKey = null; /* a cache problem must never block speech */ }
+    }
 
     const controller = new AbortController();
     const abortRequest = () => controller.abort(request.signal.reason);
@@ -283,12 +325,16 @@ export default {
         timeoutPromise
       ]);
       const boundaryHeader = encodeURIComponent(JSON.stringify(boundaries));
-      const headers = { ...cors, 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' };
-      if (boundaryHeader.length <= 8192) headers['X-TTS-Word-Boundaries'] = boundaryHeader;
-      return new Response(audio, { headers });
+      const stored = { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'public, max-age=' + CACHE_MAX_AGE + ', immutable' };
+      if (boundaryHeader.length <= 8192) stored['X-TTS-Word-Boundaries'] = boundaryHeader;
+      if (cache && cacheKey) {
+        const put = cache.put(cacheKey, new Response(audio.slice(), { headers: stored })).catch(() => {});
+        if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(put);
+      }
+      return new Response(audio, { headers: { ...cors, ...stored, 'X-TTS-Cache': 'MISS' } });
     } catch (e) {
       const status = Number(e && e.status);
-      const headers = status === 429 && e.retryAfter ? { 'Retry-After': e.retryAfter } : {};
+      const headers = status === 429 ? { 'Retry-After': e.retryAfter || DEFAULT_RETRY_AFTER } : {};
       return new Response(JSON.stringify({ error: String((e && e.message) || e) }), {
         status: status === 429 ? 429 : status === 504 ? 504 : 502,
         headers: { ...cors, ...headers, 'Content-Type': 'application/json' }
