@@ -6234,7 +6234,9 @@ Object.assign(window.__reader, {
       device: Voices.sorted(lang).filter(v => !isNoveltyVoice(v)).map(v => ({ uri: v.voiceURI, name: v.name, lang: v.lang, local: !!v.localService })) };
   },
   loadVoices: () => Voices.load(), voicesRetry: () => Voices.retry(),
-  setEdgeProxy, setEdgeVoice, setDeviceVoice, applyAudioPreset, resetAudio, previewVoice, runSpeechTest, speechReport, copyText
+  setEdgeProxy, setEdgeVoice, setDeviceVoice, applyAudioPreset, resetAudio, previewVoice, runSpeechTest, speechReport, copyText,
+  /* session 5: reader features */
+  ttsCharsPerSec: () => TTS.charsPerSec()
 });
 init();
 })();

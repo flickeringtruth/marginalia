@@ -51,8 +51,10 @@ interface ReaderUiOverrides {
 interface ReaderApi {
   App: {
     screen: 'library' | 'reader' | string;
-    book: { id: string; type?: string; title?: string; meta: { title?: string; author?: string; id?: string }; chapters: { title?: string }[]; toc: ReaderTocItem[]; getChapter: (ch: number) => Promise<HTMLElement> } | null;
-    r?: { getLoc?: () => { ch: number; off?: number; frac?: number }; prev: () => void; next: () => void };
+    book: { id: string; type?: string; title?: string; meta: { title?: string; author?: string; id?: string }; chapters: { title?: string }[]; toc: ReaderTocItem[]; getChapter: (ch: number) => Promise<HTMLElement>;
+      lengths?: number[]; total?: number; n?: number } | null;
+    r?: { getLoc?: () => { ch: number; off?: number; frac?: number; atEnd?: boolean }; prev: () => void; next: () => void; busy?: boolean;
+      info?: () => { page: number; pages: number; pageTo?: number; pdf?: boolean } | null };
     chrome: boolean;
     chromeTimer: number;
     progress?: ReaderProgress;
@@ -126,6 +128,10 @@ interface ReaderApi {
   runSpeechTest: () => void;
   speechReport: () => string;
   copyText: (text: string) => Promise<void>;
+
+  /* Added for v2 reader features (session 5) */
+  ttsCharsPerSec: () => number;
+  globalPages: (loc: { ch: number; off?: number; frac?: number }, info: unknown) => { page: number; total: number } | null;
 }
 
 interface Window {
