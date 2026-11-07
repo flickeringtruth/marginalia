@@ -210,4 +210,8 @@ function escapeHtml(value: string): string {
   })[char] || char);
 }
 
-if (typeof document !== "undefined") new PublicDomainCatalog();
+// The v2 UI (localStorage "marginalia.ui" === "v2") has its own Discover screen (src/ui/discover.ts).
+function v2On(): boolean {
+  try { return typeof localStorage !== "undefined" && localStorage.getItem("marginalia.ui") === "v2"; } catch { return false; }
+}
+if (typeof document !== "undefined" && !v2On()) new PublicDomainCatalog();
