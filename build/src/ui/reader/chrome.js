@@ -46,6 +46,7 @@ body.chrome-on #v2-reader .rbar{transition:opacity var(--v2-d-base) var(--v2-eas
 #v2-reader .scrub .lbl{font:500 var(--v2-t-xs)/1.2 var(--v2-sans);color:var(--v2-muted);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
 /* narrow phones: Bookmarks and Dictionary move into More, the title goes to the bottom label */
 @media (max-width:479px){#v2-reader .wide-only{display:none}}
+@media (max-width:599px){#v2-reader .wider-only{display:none}}
 @media (max-width:359px){#v2-reader .rtitle{visibility:hidden}}
 @media (prefers-reduced-motion:reduce){#v2-reader .rbar{transition:none!important;transform:none!important}}
 `;
@@ -55,7 +56,7 @@ export function mountChrome(actions) {
     const keep = (fn) => () => { R.keepChrome(); fn(); };
     const title = h('div', { class: 'rtitle' }, h('b'), h('span'));
     const audioBtn = IconButton({ label: 'Read aloud', icon: 'headphones', onClick: keep(() => R.TTS.toggle()), attrs: { 'aria-pressed': 'false' } });
-    const top = h('header', { class: 'rbar rtop', role: 'toolbar', 'aria-label': 'Reader' }, IconButton({ label: 'Back to library', icon: 'chevron-left', onClick: () => R.closeBook() }), IconButton({ label: 'Contents', icon: 'contents', onClick: keep(actions.contents) }), title, IconButton({ label: 'Bookmarks and notes', icon: 'bookmark', onClick: keep(actions.bookmarks), attrs: { class: 'v2-ibtn wide-only' } }), audioBtn, IconButton({ label: 'Dictionary', icon: 'dictionary', onClick: keep(() => R.dictionaryButton()), attrs: { class: 'v2-ibtn wide-only' } }), IconButton({ label: 'More', icon: 'more', onClick: keep(actions.more) }), IconButton({ label: 'Appearance settings', icon: 'type', onClick: keep(actions.settings) }));
+    const top = h('header', { class: 'rbar rtop', role: 'toolbar', 'aria-label': 'Reader' }, IconButton({ label: 'Back to library', icon: 'chevron-left', onClick: () => R.closeBook() }), IconButton({ label: 'Contents', icon: 'contents', onClick: keep(actions.contents) }), title, actions.search ? IconButton({ label: 'Search in book', icon: 'search', onClick: keep(actions.search), attrs: { class: 'v2-ibtn wider-only' } }) : null, IconButton({ label: 'Bookmarks and notes', icon: 'bookmark', onClick: keep(actions.bookmarks), attrs: { class: 'v2-ibtn wide-only' } }), audioBtn, IconButton({ label: 'Dictionary', icon: 'dictionary', onClick: keep(() => R.dictionaryButton()), attrs: { class: 'v2-ibtn wide-only' } }), IconButton({ label: 'More', icon: 'more', onClick: keep(actions.more) }), IconButton({ label: 'Appearance settings', icon: 'type', onClick: keep(actions.settings) }));
     const scrub = h('input', { type: 'range', min: 0, max: 1000, value: 0, 'aria-label': 'Position in book' });
     const label = h('div', { class: 'lbl', 'aria-live': 'off' });
     let dragging = false;
@@ -72,7 +73,7 @@ export function mountChrome(actions) {
         if (p && !dragging) {
             scrub.value = String(Math.round(p.pct * 1000));
             rangeFill(scrub);
-            label.textContent = p.label;
+            label.textContent = (actions.label && actions.label()) || p.label;
         }
     };
     const syncScreen = (screen) => { root.hidden = screen !== 'reader'; if (!root.hidden)

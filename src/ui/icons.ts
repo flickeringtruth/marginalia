@@ -56,6 +56,7 @@ const PATHS: Record<string, string> = {
   zap: '<path d="M4 12h16M13 5l7 7-7 7"/><path d="M4 7h5M4 17h5"/>',
   file: '<path d="M7 3h7l4 4v4"/><path d="M7 3v18h5"/><path d="M15 15h6M18 12l3 3-3 3"/>',
   palette: '<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 2-.9 2-1.9 0-.6-.3-1-.6-1.4-.3-.4-.6-.8-.6-1.4 0-1 .9-1.8 2-1.8h2.1a3.6 3.6 0 0 0 3.6-3.6c0-3.8-3.8-6.9-8.5-6.9z"/><circle cx="7.5" cy="11.5" r="1.2"/><circle cx="10" cy="7.5" r="1.2"/><circle cx="14.5" cy="7.5" r="1.2"/>',
+  chart: '<path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6M20 16v-9" stroke-width="2.2"/>',
   location: '<path d="M12 21s6.5-5.6 6.5-11a6.5 6.5 0 1 0-13 0c0 5.4 6.5 11 6.5 11z"/><circle cx="12" cy="10" r="2.4"/>'
 };
 const VIEWBOX: Record<string, string> = { books: '0 0 96 96' };
