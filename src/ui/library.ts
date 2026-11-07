@@ -93,7 +93,7 @@ const CSS = `
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:v2Shine 7s linear infinite}
 @keyframes v2Shine{to{background-position:-250% 0}}
 #v2-library .continue .cover{width:clamp(78px,12vw,118px)}
-#v2-library .continue .kicker{font:600 11.5px/1 var(--v2-sans);letter-spacing:.06em;text-transform:uppercase;color:var(--v2-accent)}
+#v2-library .continue .kicker{font:600 11.5px/1 var(--v2-sans);letter-spacing:.06em;text-transform:uppercase;color:var(--v2-accent-text)}
 #v2-library .continue .ttl{margin:6px 0 0;font:400 clamp(22px,3vw,30px)/1.1 var(--v2-serif);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 #v2-library .continue .by{margin:4px 0 0;font:400 var(--v2-t-sm)/1.3 var(--v2-sans);color:var(--v2-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #v2-library .continue .lv-row{display:flex;align-items:center;justify-content:space-between;gap:var(--v2-s3);margin-top:var(--v2-s3)}
@@ -125,7 +125,7 @@ const CSS = `
 #v2-library .lv-card{min-width:0;display:flex;flex-direction:column}
 
 #v2-library .cover{position:relative;display:block;width:100%;aspect-ratio:2/3;padding:0;border:0;overflow:hidden;cursor:pointer;
-  border-radius:4px 9px 9px 4px;background:var(--v2-surface);color:#fff;
+  border-radius:4px 9px 9px 4px;background:var(--v2-surface);color:#fff;   /* generated cover art: always white text on a coloured cover */
   box-shadow:0 1px 1px rgba(0,0,0,.10),0 6px 14px -6px rgba(0,0,0,.35),0 16px 26px -18px rgba(0,0,0,.5),0 18px 40px -24px hsl(var(--h,220) 70% 50% / .55);
   transition:transform var(--v2-d-slow) var(--v2-ease),box-shadow var(--v2-d-slow) var(--v2-ease)}
 #v2-library .cover>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
@@ -137,16 +137,16 @@ const CSS = `
 #v2-library .cover .badge{position:absolute;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:12px;pointer-events:none;
   box-shadow:0 2px 6px rgba(0,0,0,.3)}
 #v2-library .cover .badge .v2-icon{width:14px;height:14px;stroke-width:2.6}
-#v2-library .cover .badge.done{top:8px;right:8px;background:var(--v2-accent);color:#fff}
-#v2-library .cover .badge.pin{top:8px;left:12px;background:#ffd60a;color:#5c4400}
-#v2-library .lv-card.pinned .cover{box-shadow:0 0 0 2px #ffd60a,0 8px 22px rgba(0,0,0,.14)}
+#v2-library .cover .badge.done{top:8px;right:8px;background:var(--v2-accent);color:var(--v2-on-accent)}
+#v2-library .cover .badge.pin{top:8px;left:12px;background:var(--v2-pin);color:var(--v2-on-pin)}
+#v2-library .lv-card.pinned .cover{box-shadow:0 0 0 2px var(--v2-pin),0 8px 22px rgba(0,0,0,.14)}
 #v2-library .cover:active{transform:scale(.97)}
 @media (hover:hover){#v2-library .cover:hover{transform:translateY(-4px)}}
 
 #v2-library .prog{display:flex;align-items:center;gap:var(--v2-s2);margin-top:10px;min-height:14px}
 #v2-library .prog .lv-bar{flex:1;height:3px}
 #v2-library .prog span{font:600 11px/1 var(--v2-sans);color:var(--v2-muted);letter-spacing:.01em;font-variant-numeric:tabular-nums}
-#v2-library .lv-card[data-status="new"] .prog span{color:var(--v2-accent)}
+#v2-library .lv-card[data-status="new"] .prog span{color:var(--v2-accent-text)}
 #v2-library .foot{display:flex;align-items:flex-start;gap:2px;margin-top:6px}
 #v2-library .foot .txt{flex:1;min-width:0;padding-top:4px}
 #v2-library .foot b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:calc(2 * 1.25em);font:400 18px/1.25 var(--v2-serif)}
@@ -540,9 +540,20 @@ export function mountLibrary(): void {
   window.__marginaliaSaveBook = saveBook;
 
   const R = reader();
-  const syncScreen = (screen: string) => { shell.root.hidden = screen !== 'library'; };
+  // A hidden (display:none) screen forgets its scroll offset, so keep it and put it back on return.
+  let savedScroll = 0;
+  const syncScreen = (screen: string) => {
+    const hide = screen !== 'library';
+    if (hide && !shell.root.hidden) savedScroll = shell.main.scrollTop;
+    shell.root.hidden = hide;
+  };
   syncScreen(R.App.screen);
-  document.addEventListener('reader:screen', e => { syncScreen(e.detail.screen); if (e.detail.screen === 'library') void refresh(); });
+  document.addEventListener('reader:screen', e => {
+    syncScreen(e.detail.screen);
+    if (e.detail.screen !== 'library') return;
+    shell.main.scrollTop = savedScroll;
+    void refresh().then(() => { shell.main.scrollTop = savedScroll; });
+  });
   document.addEventListener('reader:library', () => void refresh());
   document.addEventListener('reader:name', () => renderTop());
 
