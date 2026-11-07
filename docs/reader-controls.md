@@ -125,3 +125,22 @@ These keep their engine UI and still contain some text-symbol buttons (×, ⌃, 
 - auto-scroll controls
 - PDF conversion dialog
 - message/confirm sheets
+
+## 8. Session 5 features (v2 only)
+
+New controls; nothing here replaces an old control. Verified at 320, 390, 430, 768 and 1280 px with zero overlaps (sheet open, and the match bar on its own).
+
+| v2 control | Where | Handler | Verified |
+|---|---|---|---|
+| Search in book (top bar) | From 600 px wide; below that, in More | `openSearch()` (`src/ui/reader/search.ts`) | yes |
+| Search in book row | More (EPUB, TXT and HTML books) | `openSearch()` | yes |
+| Search field (Enter, or 300 ms after typing; 2+ characters) | Search sheet | whole-book search, ignores case and accents | yes |
+| Result (snippet, grouped by chapter) | Search sheet | `App.goTo({ch, off})` + highlight | yes |
+| Previous match / Next match | Match bar above the bottom bar | same | yes |
+| Back to search results | Match bar | reopens the sheet with the last query | yes |
+| Close search | Match bar | clears the highlight | yes |
+| Go to page row | More | `openGoTo()` (`goto.ts`) | yes |
+| Page or percentage field, Go, Cancel | Go to page sheet | `goToPercent()` after the page turn finishes | yes |
+| Page · % · time left label | Bottom bar | `barLabel()` | yes |
+| Reading stats row | More (reader and library) | `openStats()` (`stats.ts`) | yes |
+| Reset stats → confirm / Cancel | Reading stats sheet | removes `marginalia.stats.v1` | yes |

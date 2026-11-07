@@ -48,3 +48,14 @@ Session 1 added `buildSpeechModel`, `edgeProxyUrl`, `retryAfterMs` and `toast`.
 `ui` (overrides: `openSettings`, `openContents`, `openMore`, which the engine's own functions use when set), `closeBook`, `dictionaryButton`, `clearSelection`, `selectionInfo()`, `selectionAction(a, color)`, `moreItems(where)`, `moreAction(id)`, `chapterTitle(ch)`, `keepChrome()`, `percentLabel(p)`, `goToPercent(p)`, `themes()`, `fonts()`, `resetAppearance()`, `audioInfo()`, `voicesInfo()`, `loadVoices()`, `voicesRetry()`, `setEdgeProxy`, `setEdgeVoice`, `setDeviceVoice`, `applyAudioPreset`, `resetAudio`, `previewVoice`, `runSpeechTest`, `speechReport`, `copyText`.
 
 Events: `reader:progress`, `reader:selection` (`detail.open`), `reader:audio`, `reader:annotations`, `reader:speechtest` (`detail.message`, `detail.report`). Globals: `__marginaliaReaderTools`, `__marginaliaOpenNote`, `__marginaliaReadAlong`; `__marginaliaTTSDownloads` gained `render`, `downloadChapter`, `downloadBook`, `cancel`, `status`.
+
+## Added in session 5 (v2 reader features)
+
+| Member | Use |
+|---|---|
+| `ttsCharsPerSec()` | Read-aloud speed in characters per second at the current voice and rate. Used for "time left" while audio plays. |
+| `globalPages(loc, info)` | Was already exposed; now typed. Its estimate drifts per chapter, so v2 "Go to page" uses its own stable page grid (`src/ui/reader/goto.ts`). |
+| `App.book.lengths`, `App.book.total` | Characters per chapter and in the whole book (read only). |
+| `App.r.busy`, `App.r.info()` | Read only: v2 waits for `busy` to clear before jumping (the 3D curl ignores `goTo` while it animates). |
+
+Test hook (v2 only): `window.__marginaliaStats` = `{ recordSample(ms, chars), addTime(sec, date?), load(), dayKey(date), speedCpm() }`, used to simulate reading time. Stats live in `localStorage` key `marginalia.stats.v1`; no IndexedDB change.
