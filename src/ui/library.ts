@@ -9,6 +9,7 @@ import { icon } from './icons.js';
 import { Button, IconButton, Chip, Field, Toggle, Sheet, confirmSheet, Menu, ListItem, showToast, EmptyState } from './components.js';
 import { AppShell, Shell } from './shell.js';
 import { setAppRoots } from './overlay.js';
+import { attachFlux } from './flux.js';
 
 /* ---------- data ---------- */
 
@@ -530,6 +531,7 @@ function openCategories(): void {
 export function mountLibrary(): void {
   addStyle('v2-library', CSS);
   shell = AppShell('v2-library', 'Library');
+  attachFlux(shell.root);
   shell.root.appendChild(h('div', { class: 'v2-drop', 'aria-hidden': 'true', text: 'Drop to import' }));
   const engineLib = document.getElementById('library');
   if (engineLib && engineLib.parentNode) engineLib.parentNode.insertBefore(shell.root, engineLib.nextSibling);

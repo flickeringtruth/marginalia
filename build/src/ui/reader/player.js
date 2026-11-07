@@ -26,7 +26,7 @@ body.immersive #v2-reader .mini-slot{bottom:calc(var(--sab) + 40px)}
 .v2-player .seek{display:grid;grid-template-columns:auto 1fr auto;gap:var(--v2-s2);align-items:center;font:500 var(--v2-t-xs)/1 var(--v2-sans);color:var(--v2-muted);font-variant-numeric:tabular-nums}
 .v2-player .seek input{width:100%;min-height:var(--v2-tap);accent-color:var(--v2-accent)}
 .v2-player .transport{display:flex;align-items:center;justify-content:center;gap:var(--v2-s2);margin:var(--v2-s2) 0 var(--v2-s4)}
-.v2-player .transport .play{width:64px;height:64px;border-radius:32px;background:var(--v2-accent);color:#fff}
+.v2-player .transport .play{width:64px;height:64px;border-radius:32px;background:var(--v2-accent);color:var(--v2-on-accent)}
 .v2-player .transport .play .v2-icon{width:28px;height:28px}
 .v2-player .rate{display:flex;align-items:center;justify-content:center;gap:var(--v2-s2);margin-bottom:var(--v2-s4)}
 .v2-player .rate output{min-width:56px;text-align:center;font:600 var(--v2-t-md)/1 var(--v2-sans);font-variant-numeric:tabular-nums}

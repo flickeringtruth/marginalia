@@ -5,11 +5,14 @@
 import { h, addStyle, reader } from '../dom.js';
 import { Button, IconButton, Chip, Toggle, Slider, Segmented, Sheet, showToast } from '../components.js';
 import { VoicePicker } from './voices.js';
+import { appTheme, setAppTheme, AppTheme } from '../theme.js';
+import { attachFlux, fluxEnabled, setFluxEnabled } from '../flux.js';
 
 type Tab = 'look' | 'audio';
 const V2_KEY = 'marginalia.ui';
 
 const CSS = `
+.v2-settings .v2-sheet-body>.v2-seg{margin-bottom:var(--v2-s4)}
 .v2-settings .grp{padding:var(--v2-s4) 0;border-top:1px solid var(--v2-line)}
 .v2-settings .grp:first-of-type{border-top:0;padding-top:0}
 .v2-settings h3{margin:0 0 var(--v2-s2);font:600 var(--v2-t-sm)/1.3 var(--v2-sans);color:var(--v2-muted);letter-spacing:.01em}
@@ -56,9 +59,11 @@ export function openSettings(tab: Tab = 'look', focusGroup?: string): void {
   const onTest = (e: DocumentEventMap['reader:speechtest']) => { const out = view.querySelector('[data-test-out]'), rep = view.querySelector('[data-test-rep]'); if (out) out.textContent = e.detail.message; if (rep) { rep.textContent = e.detail.report; (rep as HTMLElement).hidden = false; } };
   document.addEventListener('reader:audio', onAudio);
   document.addEventListener('reader:speechtest', onTest);
+  let detachFlux: () => void = () => undefined;
   const sheet = Sheet({ title: 'Settings', className: 'v2-settings', content: [tabs, view], onClose: () => {
-    document.removeEventListener('reader:audio', onAudio); document.removeEventListener('reader:speechtest', onTest); current = null;
+    document.removeEventListener('reader:audio', onAudio); document.removeEventListener('reader:speechtest', onTest); current = null; detachFlux();
   } });
+  detachFlux = attachFlux(sheet.panel);
   function draw(): void {
     const top = sheet.body.scrollTop;
     view.replaceChildren(...(active === 'look' ? appearance(draw) : audio(draw)));
@@ -89,6 +94,11 @@ function appearance(redraw: () => void): Node[] {
   const toggle = (label: string, key: string) => Toggle({ label, checked: !!S[key], onChange: v => set(key, v, key === 'layout') });
 
   const out: Node[] = [];
+  // App look: the chrome (library, Discover, sheets). Separate from the reading page theme below.
+  out.push(grp('App',
+    h('div', {}, lab('App theme'), Segmented<AppTheme>({ label: 'App theme', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], value: appTheme(), onChange: v => setAppTheme(v) })),
+    Toggle({ label: 'Animated background', checked: fluxEnabled(), onChange: v => setFluxEnabled(v) }),
+    hint('The app theme colours the library, Discover and menus. It does not change the page you read on; that is set under Reading page theme.')));
   const size = h('output', { text: S.fontSize + ' px' });
   out.push(grp('Text',
     isPdf ? null : h('div', { class: 'size' },
@@ -123,7 +133,7 @@ function appearance(redraw: () => void): Node[] {
       Slider({ label: 'Intensity', min: 0.05, max: 1, step: 0.01, value: g.intensity, format: v => Math.round(v * 100) + '%', onInput: v => r.setGrad({ intensity: v }) }),
       hint('Text contrast ' + gi.minC.toFixed(1) + ':1' + (gi.limited ? ' — intensity is capped at ' + Math.round(gi.k * 100) + '% to keep the text readable (WCAG 4.5:1).' : ' (meets WCAG AA).'))));
   }
-  out.push(grp('Theme', themes, ...extra));
+  out.push(grp('Reading page theme', themes, ...extra));
 
   if (!isPdf) {
     const fonts = h('div', { class: 'v2-fonts', role: 'radiogroup', 'aria-label': 'Font' }, ...r.fonts().map(f => {

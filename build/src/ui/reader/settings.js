@@ -4,8 +4,11 @@
 import { h, addStyle, reader } from '../dom.js';
 import { Button, IconButton, Chip, Toggle, Slider, Segmented, Sheet, showToast } from '../components.js';
 import { VoicePicker } from './voices.js';
+import { appTheme, setAppTheme } from '../theme.js';
+import { attachFlux, fluxEnabled, setFluxEnabled } from '../flux.js';
 const V2_KEY = 'marginalia.ui';
 const CSS = `
+.v2-settings .v2-sheet-body>.v2-seg{margin-bottom:var(--v2-s4)}
 .v2-settings .grp{padding:var(--v2-s4) 0;border-top:1px solid var(--v2-line)}
 .v2-settings .grp:first-of-type{border-top:0;padding-top:0}
 .v2-settings h3{margin:0 0 var(--v2-s2);font:600 var(--v2-t-sm)/1.3 var(--v2-sans);color:var(--v2-muted);letter-spacing:.01em}
@@ -54,11 +57,14 @@ export function openSettings(tab = 'look', focusGroup) {
     } };
     document.addEventListener('reader:audio', onAudio);
     document.addEventListener('reader:speechtest', onTest);
+    let detachFlux = () => undefined;
     const sheet = Sheet({ title: 'Settings', className: 'v2-settings', content: [tabs, view], onClose: () => {
             document.removeEventListener('reader:audio', onAudio);
             document.removeEventListener('reader:speechtest', onTest);
             current = null;
+            detachFlux();
         } });
+    detachFlux = attachFlux(sheet.panel);
     function draw() {
         const top = sheet.body.scrollTop;
         view.replaceChildren(...(active === 'look' ? appearance(draw) : audio(draw)));
@@ -89,6 +95,8 @@ function appearance(redraw) {
     const slider = (label, key, min, max, step, fmt) => Slider({ label, min, max, step, value: Number(S[key]), format: fmt, onInput: v => set(key, v, false) });
     const toggle = (label, key) => Toggle({ label, checked: !!S[key], onChange: v => set(key, v, key === 'layout') });
     const out = [];
+    // App look: the chrome (library, Discover, sheets). Separate from the reading page theme below.
+    out.push(grp('App', h('div', {}, lab('App theme'), Segmented({ label: 'App theme', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], value: appTheme(), onChange: v => setAppTheme(v) })), Toggle({ label: 'Animated background', checked: fluxEnabled(), onChange: v => setFluxEnabled(v) }), hint('The app theme colours the library, Discover and menus. It does not change the page you read on; that is set under Reading page theme.')));
     const size = h('output', { text: S.fontSize + ' px' });
     out.push(grp('Text', isPdf ? null : h('div', { class: 'size' }, IconButton({ label: 'Smaller text', icon: 'text-smaller', filled: true, onClick: () => set('fontSize', Math.max(12, S.fontSize - 1)) }), size, IconButton({ label: 'Larger text', icon: 'text-larger', filled: true, onClick: () => set('fontSize', Math.min(36, S.fontSize + 1)) })), slider('Brightness', 'brightness', 0.3, 1, 0.01, v => Math.round(v * 100) + '%')));
     // themes
@@ -125,7 +133,7 @@ function appearance(redraw) {
         }), g.colors.length < 5 ? IconButton({ label: 'Add colour', icon: 'plus', filled: true, onClick: () => { const cs = g.colors.slice(); cs.push(['#57f287', '#5865f2', '#ed4245', '#fee75c', '#eb459e'][cs.length % 5]); r.setGrad({ colors: cs }); redraw(); } }) : null);
         extra.push(h('div', { style: 'margin-top:12px' }, pv, stops, Slider({ label: 'Angle', min: 0, max: 360, step: 1, value: g.angle, format: v => Math.round(v) + '°', onInput: v => r.setGrad({ angle: v }) }), Slider({ label: 'Intensity', min: 0.05, max: 1, step: 0.01, value: g.intensity, format: v => Math.round(v * 100) + '%', onInput: v => r.setGrad({ intensity: v }) }), hint('Text contrast ' + gi.minC.toFixed(1) + ':1' + (gi.limited ? ' — intensity is capped at ' + Math.round(gi.k * 100) + '% to keep the text readable (WCAG 4.5:1).' : ' (meets WCAG AA).'))));
     }
-    out.push(grp('Theme', themes, ...extra));
+    out.push(grp('Reading page theme', themes, ...extra));
     if (!isPdf) {
         const fonts = h('div', { class: 'v2-fonts', role: 'radiogroup', 'aria-label': 'Font' }, ...r.fonts().map(f => {
             const b = h('button', { type: 'button', role: 'radio', class: 'v2-font', 'aria-checked': String(S.font === f.key), text: f.label });
