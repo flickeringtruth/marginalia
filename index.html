@@ -3045,9 +3045,21 @@ const EDGE_VOICES = [
   'sv-SE-MattiasNeural', 'sv-SE-SofieNeural', 'da-DK-ChristelNeural', 'da-DK-JeppeNeural',
   'pl-PL-MarekNeural', 'pl-PL-ZofiaNeural', 'ru-RU-DmitryNeural', 'ru-RU-SvetlanaNeural'
 ];
+/* Retry-After is either seconds or an HTTP date. Returns milliseconds (0 if missing). */
+function retryAfterMs(value) {
+  if (!value) return 0;
+  const s = Number(value);
+  if (Number.isFinite(s)) return Math.max(0, s * 1000);
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? Math.max(0, t - Date.now()) : 0;
+}
 function edgeProxyUrl() { try { return (A.edgeProxy || localStorage.getItem('marginalia.voiceProxy') || '').trim().replace(/\/+$/, ''); } catch (e) { return (A.edgeProxy || '').trim().replace(/\/+$/, ''); } }
 const MALE_RE = /\b(male|man|google uk english male|microsoft david|daniel|alex|fred|aaron|arthur|rishi|oliver|thomas|gordon|lee|ralph|reed|rocko|eddy|grandpa|guy|davis|ryan|christopher|eric|brian|andrew|roger|william|tony|mark|david|george|james|xander|frank|maarten|arjan|jacques|paul|nathan|evan|jorge|diego|luca|hans|markus|stefan|tom|liam|noah|matthew|steffan|connor|william)\b/;
-const NOVELTY_RE = /compact|espeak|robot|novelty|bells|bubbles|zarvox|whisper|trinoids|bad news|good news|jester|organ|cellos|boing|hysterical|albert|bahh|superstar|wobble|deranged|pipe/;
+/* Novelty voices are matched by display name only. Never test voiceURI here: Apple's normal
+   iPhone voices have IDs like com.apple.voice.compact.en-US.Samantha, and "compact",
+   "enhanced" and "premium" are quality tiers, not novelty voices. */
+const NOVELTY_RE = /\b(albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|organ|pipe organ|superstar|trinoids|whisper|wobble|zarvox|espeak|robot|novelty)\b/i;
+function isNoveltyVoice(v) { return !!v && NOVELTY_RE.test(String(v.name || '')); }
 let SPEECH_WORD_RE; try { SPEECH_WORD_RE = new RegExp('[\\p{L}\\p{N}]', 'u'); } catch (e) { SPEECH_WORD_RE = /[A-Za-z0-9\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]/; }
 
 const IS_CHROMIUM = /Chrome\//.test(navigator.userAgent) && !!window.chrome;
@@ -3066,16 +3078,41 @@ const Voices = {
       const take = () => {
         let v = []; try { v = speechSynthesis.getVoices() || []; } catch (e) { /* ignore */ }
         if (!v.length) return false;
-        const changed = v.length !== this.list.length; this.list = v;
+        const changed = v.length !== this.list.length; this.list = v; this.gaveUp = false;
         if (!done) { done = true; res(v); }
         if (changed) AudioUI.voicesChanged();
         return true;
       };
+      this.take = take;
       try { speechSynthesis.addEventListener('voiceschanged', take); } catch (e) { speechSynthesis.onvoiceschanged = take; }
+      // iOS often returns no voices until later, or until the first tap. Keep checking after the
+      // first tap and whenever the page becomes visible again, not only during the start-up poll.
+      const again = () => { if (!this.list.length) this.retry(); };
+      document.addEventListener('pointerdown', again, { capture: true, passive: true });
+      document.addEventListener('keydown', again, { capture: true });
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) again(); });
       if (take()) return;
-      let n = 0; const iv = setInterval(() => { if (take() || ++n > 24) { clearInterval(iv); if (!done) { done = true; res(this.list); } } }, 250);
+      // Poll with backoff for about 10 seconds before reporting that no voices were found.
+      const delays = [100, 150, 250, 250, 400, 400, 600, 800, 1000, 1200, 1500, 1800, 2000];
+      let n = 0;
+      const poll = () => {
+        if (take()) return;
+        if (n < delays.length) { setTimeout(poll, delays[n++]); return; }
+        this.gaveUp = true;
+        if (!done) { done = true; res(this.list); }
+        AudioUI.voicesChanged();
+      };
+      setTimeout(poll, delays[n++]);
     });
     return this.ready;
+  },
+  /* Re-checks a few times after a tap or when the page comes back (cheap; stops once voices appear). */
+  retry() {
+    if (!TTS_OK || !this.take || this.retrying) return;
+    this.retrying = true;
+    let n = 0;
+    const step = () => { if (this.take() || ++n >= 6) { this.retrying = false; return; } setTimeout(step, 400 * n); };
+    step();
   },
   score(v, lang, preset) {
     const n = (v.name + ' ' + v.voiceURI).toLowerCase(), vl = String(v.lang || '').toLowerCase().replace('_', '-'), bl = String(lang || '').toLowerCase();
@@ -3084,7 +3121,7 @@ const Voices = {
     if (/natural|neural|premium|enhanced|siri|wavenet|journey|studio/.test(n)) s += 12;
     if (/google|online/.test(n)) s += 5;
     if (IS_CHROME_DESKTOP && v.localService === false) s -= 25;   // Chrome's online voices often never start (esp. macOS)
-    if (NOVELTY_RE.test(n)) s -= 40;
+    if (isNoveltyVoice(v)) s -= 40;
     if (v.default) s += 2;
     if (preset === 'deep' && MALE_RE.test(n)) s += 10;
     if (preset === 'natural' && /natural|neural|premium|enhanced/.test(n)) s += 6;
@@ -3551,6 +3588,14 @@ const TTS = {
   },
   async edgeAudio(text, signal, cacheBookId = App.book && App.book.id, prosody = { rate: 1, pitch: 1 }) {
     const voice = A.edgeVoice;
+    // Downloaded chapters (fixes → build/src/tts-downloads.js) come first, so they play offline.
+    const downloads = window.__marginaliaTTSDownloads;
+    if (downloads && cacheBookId) {
+      try {
+        const hit = await downloads.lookup(cacheBookId, voice, prosody.rate, prosody.pitch, text);
+        if (hit) { this.logEv('edge-download-hit', text.length); return hit; }
+      } catch (e) { this.logEv('edge-download-read-failed', e.message); }
+    }
     const storyKey = prosody.rate !== 1 || prosody.pitch !== 1 ? ':prosody:' + prosody.rate + ':' + prosody.pitch : '';
     const cacheId = cacheBookId ? 'edge-audio:v2:' + cacheBookId + ':' + voice + ':' + hashStr(text) + storyKey : '';
     if (cacheId) {
@@ -3574,6 +3619,7 @@ const TTS = {
         continue;
       }
       if (response.ok) {
+        this.edge429 = 0;
         const blob = await response.blob();
         let boundaries = [];
         const boundaryHeader = response.headers.get('X-TTS-Word-Boundaries');
@@ -3594,6 +3640,18 @@ const TTS = {
       let message = 'HTTP ' + response.status;
       try { const data = await response.json(); if (data.error) message = data.error; } catch (e) { /* ignore */ }
       const rateLimited = response.status === 429 || /\bHTTP\s*429\b/i.test(message);
+      if (rateLimited) {
+        // Honour Retry-After with backoff. After 3 consecutive 429s, give up so playback can
+        // switch to a device voice (see edgeError).
+        this.edge429 = (this.edge429 || 0) + 1;
+        if (this.edge429 < 3) {
+          const delay = Math.min(30000, Math.max(retryAfterMs(response.headers.get('Retry-After')), 2000 * 2 ** (this.edge429 - 1))) + Math.floor(Math.random() * 500);
+          this.logEv('edge-429', 'retry ' + this.edge429 + ' in ' + delay + 'ms');
+          if (this.edge429 === 1) toast('Voice service is busy. Retrying…', 2400);
+          await this.waitEdgeRetry(delay, signal);
+          continue;
+        }
+      }
       const transient = response.status === 502 || response.status === 503 || response.status === 504;
       if (rateLimited || !transient || transientRetries >= 2) {
         const error = new Error(message); error.status = response.status; error.rateLimited = rateLimited; throw error;
@@ -3603,12 +3661,29 @@ const TTS = {
       await this.waitEdgeRetry(delay, signal);
     }
   },
-  requestEdgeChunk(i, from) {
-    const c = this.model.chunks[i], text = this.model.text.slice(from, c.e).replace(/\s+/g, ' ');
-    const controller = new AbortController();
+  /* The exact text and prosody sent for chunk i (shared with chapter downloads so keys match). */
+  edgeChunkRequest(m, i, from = m.chunks[i].s) {
+    const c = m.chunks[i], text = m.text.slice(from, c.e).replace(/\s+/g, ' ');
     const prosody = A.engine === 'edge' && A.cadence ? this.edgeStoryProsody(text) : { rate: 1, pitch: clamp(A.pitch, 0.5, 1.6) };
-    const promise = this.edgeAudio(text, controller.signal, App.book && App.book.id, prosody).then(result => result, error => ({ error }));
-    return { i, from, text, controller, promise };
+    return { text, voice: A.edgeVoice, rate: prosody.rate, pitch: prosody.pitch };
+  },
+  requestEdgeChunk(i, from) {
+    const m = this.model, c = m.chunks[i];
+    const req = this.edgeChunkRequest(m, i, from);
+    const controller = new AbortController();
+    const bookId = App.book && App.book.id;
+    const promise = (async () => {
+      // Resuming mid-sentence: if this whole sentence was downloaded, play it from its start
+      // instead of asking the network for the partial text (keeps offline playback working).
+      const downloads = window.__marginaliaTTSDownloads;
+      if (from > c.s && downloads && bookId) {
+        const full = this.edgeChunkRequest(m, i);
+        const hit = await downloads.lookup(bookId, full.voice, full.rate, full.pitch, full.text).catch(() => null);
+        if (hit) return Object.assign({}, hit, { from: c.s, text: full.text });
+      }
+      return this.edgeAudio(req.text, controller.signal, bookId, { rate: req.rate, pitch: req.pitch });
+    })().then(result => result, error => ({ error }));
+    return { i, from, text: req.text, controller, promise };
   },
   prefetchEdgeChunk(i, tk) {
     if (tk !== this.token || i >= this.model.chunks.length || i > this.idx + 2 ||
@@ -3623,10 +3698,11 @@ const TTS = {
       const decoded = await ctx.decodeAudioData(await result.blob.arrayBuffer());
       if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
       const trimmed = this.trimEdgeSilence(ctx, decoded);
+      const from = result.from != null ? result.from : request.from, text = result.text || request.text;
       const prepared = {
-        i, from: request.from, text: request.text,
+        i, from, text,
         buffer: this.stretchEdgeBuffer(ctx, trimmed.buffer, A.rate),
-        boundaries: this.mapEdgeBoundaries(request.text, request.from, result.boundaries, trimmed.trimStart)
+        boundaries: this.mapEdgeBoundaries(text, from, result.boundaries, trimmed.trimStart)
       };
       this.edgeReady.set(i, prepared);
       this.scheduleEdgeReady(tk);
@@ -3772,6 +3848,15 @@ const TTS = {
   },
   edgeError(i, from, tk, message, rateLimited) {
     if (tk !== this.token) return;
+    if (rateLimited) {
+      // 3 consecutive 429s: Microsoft is throttling. Continue with the selected (or best) device
+      // voice for the rest of this session instead of stopping. Changing audio settings retries Edge.
+      this.logEv('edge-rate-limit', 'switching to device voice for this session');
+      this.stopOnline(); this.onlineDown = true; this.edge429 = 0;
+      toast('Microsoft’s voice service is limiting requests. Continuing with your device voice for now.', 4200);
+      this.speakFrom(this.ch, this.pos || from);
+      return;
+    }
     if (A.voiceLocked) {
       this.logEv(rateLimited ? 'edge-rate-limit' : 'edge-error', message);
       this.stopOnline(); this.onlineDown = true; this.pause();
@@ -4295,13 +4380,15 @@ function buildAudioSettings() {
       <div class="row" style="margin-top:6px"><span>Voice</span><select id="edgeVoice" aria-label="EdgeTTS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px"></select><button class="small-btn" id="edgePreview">Preview</button></div>
       <div class="row" style="margin-top:6px;justify-content:flex-end"><button class="small-btn" id="edgeVoicePrev" aria-label="Previous matching EdgeTTS voice">Previous</button><button class="small-btn" id="edgeVoiceNext" aria-label="Next matching EdgeTTS voice">Next</button></div>
       <p class="hint">Enter the Cloudflare Worker address used by the Edge voice test. It is saved on this device.</p>
+      <p class="hint">EdgeTTS uses Microsoft’s unofficial Edge read-aloud service, not a public API. Microsoft can still throttle or block it at any time. Caching and downloads cut down how often it is asked, but they can’t prevent that. If it refuses 3 times in a row, reading continues with your device voice.</p>
+      <div id="ttsDownloads"></div>
     </div>
   </div>
   <div class="grp"><h3>Voice</h3>
     <div class="chips" data-aseg="preset"><button data-v="auto">Best available</button><button data-v="deep">Deep</button><button data-v="natural">Natural</button><button data-v="narrator">Narrator</button><button data-v="story">Storytelling</button></div>
     <div class="row" style="margin-top:8px"><select id="voiceSelect" aria-label="Voice"></select><button class="small-btn" id="voicePreview">Preview</button></div>
     <button class="switch-row" data-atoggle="voiceLocked">Lock selected voice<span class="switch"></span></button>
-    <p class="hint">When locked, the selected voice won’t be changed automatically. If it can’t play, reading pauses instead of switching.</p>
+    <p class="hint">When locked, the selected voice won’t be changed automatically. If it can’t play, reading pauses instead of switching. Exception: if EdgeTTS is rate-limited 3 times in a row, reading continues with your device voice for this session.</p>
     <button class="switch-row" data-atoggle="cadence">Storytelling cadence<span class="switch"></span></button>
     <p class="hint">Adds subtle sentence-aware pacing and pitch changes for EdgeTTS and device voices.</p>
     <p class="hint" id="voiceHint">Voices come from your device and are free. For more natural voices on iPhone or iPad, download an Enhanced or Premium voice in Settings → Accessibility → Spoken Content → Voices. On Windows, Microsoft Edge offers free Natural voices.</p>
@@ -4376,14 +4463,19 @@ function fillVoiceSelect() {
   const sel = $('#voiceSelect'); if (!sel) return;
   if (!TTS_OK) { sel.innerHTML = '<option>Not available in this browser</option>'; sel.disabled = true; return; }
   const lang = bookLang(), base = lang.split('-')[0].toLowerCase();
-  const vs = Voices.sorted(lang).filter(v => !NOVELTY_RE.test((v.name + ' ' + v.voiceURI).toLowerCase()));
+  const vs = Voices.sorted(lang).filter(v => !isNoveltyVoice(v));
   const mine = vs.filter(v => String(v.lang).toLowerCase().startsWith(base)), other = vs.filter(v => !mine.includes(v));
   const opt = v => `<option value="${esc(v.voiceURI)}">${esc(v.name)} — ${esc(v.lang)}${v.localService ? '' : (IS_CHROME_DESKTOP ? ' · online (may not start in Chrome)' : ' · online')}</option>`;
   sel.innerHTML = `<option value="">Automatic (${esc((TTS.voice() || { name: 'system default' }).name)})</option>` +
     (mine.length ? `<optgroup label="Matches book language">${mine.map(opt).join('')}</optgroup>` : '') +
     (other.length ? `<optgroup label="Other languages">${other.map(opt).join('')}</optgroup>` : '');
   sel.value = A.voiceURI && Voices.byURI(A.voiceURI) ? A.voiceURI : '';
-  if (!Voices.list.length) sel.innerHTML = '<option value="">Loading voices…</option>';
+  if (!Voices.list.length) {
+    sel.innerHTML = Voices.gaveUp
+      ? '<option value="">No device voices found yet. Tap to check again.</option>'
+      : '<option value="">Loading voices…</option>';
+    if (Voices.gaveUp) Voices.retry();
+  }
 }
 function syncAudioSettingsUI() {
   const body = $('#audioBody'); if (!body || !body.firstElementChild) return;
@@ -6036,7 +6128,7 @@ document.addEventListener('vocabulary:open', () => openSheet('vocabSheet'));
 document.addEventListener('catalog:open', () => openSheet('catalogSheet'));
 document.addEventListener('catalog:library-updated', () => { void renderLibrary(); });
 // Expose a tiny debug/test handle
-window.__reader = { App, S, HL, lookupWord, importFile, openBook, setSetting, Sel, CONFIG, TTS, A, setAudio, AudioUI, Dict, AI, SpeedReader, AutoScroll, PdfConvert, Ambient, gradientTheme, setGrad, globalPages };
+window.__reader = { App, S, HL, lookupWord, importFile, openBook, setSetting, Sel, CONFIG, TTS, A, setAudio, AudioUI, Dict, AI, SpeedReader, AutoScroll, PdfConvert, Ambient, gradientTheme, setGrad, globalPages, buildSpeechModel, edgeProxyUrl, retryAfterMs, toast };
 init();
 })();
 </script>
