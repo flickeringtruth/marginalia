@@ -11,29 +11,12 @@
 
 interface Boundary { offset: number; text: string; duration?: number }
 interface AudioHit { blob: Blob; boundaries: Boundary[] }
-interface Chunk { s: number; e: number; p: number }
-interface SpeechModel { ch: number; text: string; chunks: Chunk[] }
-interface ChunkRequest { text: string; voice: string; rate: number; pitch: number }
-interface Book { id: string; type?: string; title?: string; meta?: { title?: string }; chapters: unknown[] }
-interface Reader {
-  App: { book: Book | null; r?: { getLoc?: () => { ch: number } } };
-  A: { engine: string; edgeVoice: string; cadence: boolean; pitch: number };
-  TTS: { ch: number; edgeChunkRequest: (m: SpeechModel, i: number) => ChunkRequest };
-  buildSpeechModel: (ch: number, mode: string) => Promise<SpeechModel>;
-  edgeProxyUrl: () => string;
-  retryAfterMs: (value: string | null) => number;
-}
+// Engine types live in src/reader-api.d.ts.
+type ChunkRequest = ReaderChunkRequest;
+type Book = NonNullable<ReaderApi['App']['book']>;
+type Reader = ReaderApi;
 interface ChapterRecord { sig: string; chunks: number; bytes: number; at: number }
 type Manifest = Record<string, { title: string; chapters: Record<string, ChapterRecord> }>;
-
-declare global {
-  interface Window {
-    __reader?: Reader;
-    __marginaliaTTSDownloads?: {
-      lookup: (bookId: string, voice: string, rate: number, pitch: number, text: string) => Promise<AudioHit | null>;
-    };
-  }
-}
 
 const CACHE_NAME = 'marginalia-tts-downloads-v1';
 const KEY_PATH = '/__tts-download/v1/';

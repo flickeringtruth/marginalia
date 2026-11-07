@@ -10,6 +10,9 @@
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#ffffff">
 <title>Marginalia</title>
+<!-- v2 UI switch (localStorage "marginalia.ui" = "v2"): marks <html> before first paint so the old library never flashes. No effect when unset. -->
+<script>try{if(localStorage.getItem('marginalia.ui')==='v2')document.documentElement.classList.add('ui-v2')}catch(e){}</script>
+<style>html.ui-v2 #library{display:none!important}</style>
 <style>
 /* =====================================================================
    1. DESIGN TOKENS (theme variables are rewritten by applyTheme())
@@ -5645,6 +5648,7 @@ function showScreen(name) {
   App.screen = name;
   $('#library').classList.toggle('hidden', name !== 'library');
   $('#reader').classList.toggle('hidden', name !== 'reader');
+  document.dispatchEvent(new CustomEvent('reader:screen', { detail: { screen: name } }));
 }
 
 /* ---------- Import ---------- */
@@ -5732,6 +5736,7 @@ async function renderLibrary() {
     const img = card.querySelector('img'); if (img) img.addEventListener('error', () => { img.outerHTML = genCover(m); });
     grid.appendChild(card);
   }
+  document.dispatchEvent(new CustomEvent('reader:library'));
 }
 
 /* =====================================================================
@@ -6084,9 +6089,9 @@ const Greeter = (() => {
     const name = (LS.get('marginalia.name', '') || '').trim();
     const t = document.getElementById('libTitle');
     if (!t) return;
-    if (!name) { t.textContent = 'Library'; return; }
-    if (!greeting) greeting = pick();
-    t.textContent = greeting[0] + ', ' + name + greeting[1];
+    if (!name) t.textContent = 'Library';
+    else { if (!greeting) greeting = pick(); t.textContent = greeting[0] + ', ' + name + greeting[1]; }
+    document.dispatchEvent(new CustomEvent('reader:name', { detail: { title: t.textContent } }));
   };
   const gate = () => document.getElementById('nameGate');
   const open = () => {
@@ -6110,7 +6115,8 @@ const Greeter = (() => {
     render();
     if (!LS.get('marginalia.asked', false) && !(LS.get('marginalia.name', '') || '').trim()) open();
   };
-  return { start, render };
+  const title = () => { const t = document.getElementById('libTitle'); return (t && t.textContent) || 'Library'; };
+  return { start, render, open, title };
 })();
 
 async function init() {
@@ -6129,6 +6135,26 @@ document.addEventListener('catalog:open', () => openSheet('catalogSheet'));
 document.addEventListener('catalog:library-updated', () => { void renderLibrary(); });
 // Expose a tiny debug/test handle
 window.__reader = { App, S, HL, lookupWord, importFile, openBook, setSetting, Sel, CONFIG, TTS, A, setAudio, AudioUI, Dict, AI, SpeedReader, AutoScroll, PdfConvert, Ambient, gradientTheme, setGrad, globalPages, buildSpeechModel, edgeProxyUrl, retryAfterMs, toast };
+// Small hooks for the v2 UI (src/ui). Typed in src/reader-api.d.ts, documented in docs/reader-api.md.
+Object.assign(window.__reader, {
+  listBooks: () => DB.allMeta(),
+  getBook: id => DB.getMeta(id),
+  async updateBook(id, patch) {
+    const m = await DB.getMeta(id); if (!m) throw new Error('Book not found');
+    if (typeof patch.title === 'string') m.title = patch.title;
+    if (typeof patch.author === 'string') m.author = patch.author;
+    if (patch.coverBuf) { m.coverBuf = patch.coverBuf; m.coverType = patch.coverType || 'image/jpeg'; }
+    else if (patch.removeCover) { delete m.coverBuf; delete m.coverType; }
+    await DB.putMeta(m); await renderLibrary(); return m;
+  },
+  async storeBook(meta, buf) { await DB.putFile(meta.id, buf); await DB.putMeta(meta); await renderLibrary(); },
+  async deleteBook(id) { const m = await DB.getMeta(id); if (m) await deleteBook(m); },
+  pickFiles() { const fi = $('#fileInput'); fi.value = ''; fi.click(); },
+  importFiles, openSample, openMore, openSettings, renderLibrary,
+  coverHtml: genCover,
+  editName: () => Greeter.open(),
+  libraryTitle: () => Greeter.title()
+});
 init();
 })();
 </script>

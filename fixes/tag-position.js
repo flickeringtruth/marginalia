@@ -10,6 +10,8 @@ import './user-data.js';
 
 (() => {
   if (window.__marginaliaTagFix) return;
+  // v2 has no ⋯ tag on the cover (it caused a button inside a button), so this part is skipped.
+  try { if (localStorage.getItem('marginalia.ui') === 'v2') return; } catch (e) { /* storage blocked: old UI */ }
   window.__marginaliaTagFix = true;
 
   const style = document.createElement('style');

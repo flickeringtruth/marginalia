@@ -35,3 +35,23 @@
 3. Optional, for the cache to work: Settings → Domains & Routes → add a custom domain, then put that address in the app's EdgeTTS Worker URL.
 4. Check: play a sentence twice; the second response should show `X-TTS-Cache: HIT` (custom domain only).
 5. Note: the preview build for this branch failed on Cloudflare (log not visible from GitHub). Look at it before merging.
+
+## Session 2: UI foundation + library (2026-11-07, branch `ui-v2/02-foundation`, built on `ui-v2/01-tts` because PR #1 was not merged yet)
+
+**What changed**
+- `docs/ui-audit.md`: why things overlap (23 competing z-index values, transformed ancestors, duplicate bars/sheets/toasts, `!important` overrides, mixed safe-area code, `vh` on iOS, 6 observers on one grid), with file:line refs. It also confirms a bug in the current UI: tapping ⋯ on a cover opens the editor *and* the book.
+- `src/ui/`: tokens (colour aliases of the current themes, spacing, radius, type, motion), one z-index scale (base 0 < bars 100 < sheet 200 < overlay 300 < menu 400 < toast 500), app shell with bar slots that reserve their own space, one overlay stack in a single portal (focus trap, Escape, backdrop, Back gesture), one SVG icon set, and components: Button, IconButton, Chip, Field, Sheet, Menu, Toggle, Slider, Segmented, ListItem, Toast, Empty/Error state.
+- `src/ui/library.ts`: the library rebuilt on it. It keeps the greeting, Discover, More, Import, continue reading, stats, status filters, pins, categories (add/rename/delete), Start here (Save to device / Read on site), the editor (title, author, cover, ready-made designs, pin, category), delete, the empty state, drag-and-drop import, the book-opening animation, progress and finished badges. Same storage as before. Books are matched by id, not title.
+- Engine: small `window.__reader` hooks and three events (`docs/reader-api.md`, `src/reader-api.d.ts`), plus a two-line `<head>` check so the old library never flashes when v2 is on.
+- Old layers: `fixes/read-along-size.js` loads the same layers in the same order, but skips `library-ui`, `magic-motion`, `library-depth` and `library-type` when v2 is on. `library.js` and the tag part of `tag-position.js` also step aside in v2. `book-open.js` gained an open-by-id hook, and `read-on-site.js` opens directly in v2. No files deleted.
+- `dev/overlap-check.js`: reports any two visible interactive elements whose boxes intersect.
+
+**Switch v2 on/off:** Settings › Appearance › Interface › "New interface (preview)". It sets or clears localStorage `marginalia.ui` = `v2` and reloads.
+
+**Tested** (desktop Chrome, 390 px and 1280 px): `tsc` zero errors. No app console errors with v2 on or off. Overlap check reports none with v2 on: library at top, middle and bottom, menu open, editor open, sheet over sheet. The same check flags the old UI's delete button on the cover. With v2 off: library, open book, page turns, device read-aloud and Discover all work as before.
+
+**Still old UI:** reader screen, Settings, More, Discover, message/confirm sheets, name screen, user settings (sessions 3–4). Their layers are mapped onto the v2 scale while v2 is on, so toasts now show above dialogs. Tilt, glare and spotlight on covers were not carried over. Fonts still load from Google Fonts at runtime, as before. Vendoring them is a follow-up.
+
+**Check on a real iPhone:** the header clears the notch and the content clears the home indicator, in portrait and landscape; sheets sit above the home indicator; scrolling the library while Safari's toolbar collapses and expands (dynamic viewport) leaves no gap or jump; the Back swipe closes an open sheet first; covers tap through to the opening animation.
+
+**Worker redeploy required: NO** (session 2 did not change the Worker).
