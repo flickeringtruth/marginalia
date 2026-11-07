@@ -29,9 +29,9 @@
 - Download a chapter, turn on Airplane mode, play it.
 - Whether downloads survive a few days (Safari can clear site storage it considers unused).
 
-**Worker redeploy required: YES**
-1. Cloudflare dashboard → Workers & Pages → open the Marginalia Worker → Edit code.
-2. Replace `edge-proxy-worker.js` with the version from this branch (`worker.js` is unchanged). Deploy.
-3. Or from a terminal in the repo: `npx wrangler deploy`.
-4. Optional, for the cache to work: Settings → Domains & Routes → add a custom domain, then put that address in the app's EdgeTTS Worker URL.
-5. Check: play a sentence twice; the second response should show `X-TTS-Cache: HIT` (custom domain only).
+**Worker redeploy required: YES (automatic on merge)**
+1. The Worker is connected to this repo through Cloudflare Workers Builds, so merging to `main` redeploys it. Check the "Workers Builds: marginalia" status on the merge commit is green.
+2. If that build fails, the old Worker keeps running. Open the build log in the Cloudflare dashboard (Workers & Pages → marginalia → Deployments/Builds) to see why.
+3. Optional, for the cache to work: Settings → Domains & Routes → add a custom domain, then put that address in the app's EdgeTTS Worker URL.
+4. Check: play a sentence twice; the second response should show `X-TTS-Cache: HIT` (custom domain only).
+5. Note: the preview build for this branch failed on Cloudflare (log not visible from GitHub). Look at it before merging.
