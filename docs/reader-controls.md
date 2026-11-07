@@ -45,7 +45,9 @@ Columns: **v2 control** is what the user taps in v2; **handler** is the engine f
 |---|---|---|---|
 | Text size A / A | Smaller / Larger buttons + value | `setSetting('fontSize')` | yes |
 | Brightness | Slider | `setSetting('brightness')` | yes |
-| Themes (incl. Custom, Gradient) | Theme swatches | `setSetting('theme')` | yes |
+| **App theme: Dark / Light** (bugfix pass; the app chrome, not the page) | Segmented, first group "App" | `setAppTheme()` (src/ui/theme.ts): `data-app-theme` + localStorage `marginalia.appTheme` | yes |
+| **Animated background** (flux) on/off (bugfix pass) | Toggle in the "App" group | `setFluxEnabled()` (src/ui/flux.ts): localStorage `marginalia.flux` | yes |
+| Reading page themes (incl. Custom, Gradient), group "Reading page theme" | Theme swatches | `setSetting('theme')` | yes |
 | Custom background / text colour | Two colour inputs | `setSetting('customBg'/'customFg')` | yes |
 | Gradient: colours, add, remove, angle, intensity, contrast note | Gradient editor | `setGrad()` | yes |
 | Fonts | Font buttons | `setSetting('font')` | yes |
@@ -61,12 +63,11 @@ Columns: **v2 control** is what the user taps in v2; **handler** is the engine f
 
 | Old control | v2 control | Handler | Verified |
 |---|---|---|---|
-| Engine: Device / EdgeTTS | Segmented | `setAudio('engine')` | yes |
-| Worker URL + Save | Field + Save | `setEdgeProxy(url)` | yes |
-| Edge voice search, select, previous, next, preview | Search field, select, Previous/Next, Preview | `setEdgeVoice`, `previewVoice` | yes |
+| **One voice picker** (bugfix pass; replaces the Engine segmented control, the two voice selects, previous/next and the two Preview buttons): search, groups "Online (Edge)" and "On this device", row = pick, play button = preview | Search field, radio rows, per-row preview, "Show N voices in other languages", "Check again" | `selectVoice(kind, id)` (sets engine + voice together, restarts playback once), `previewVoiceFor(kind, id)` | yes |
+| Online voice service status + Retry (bugfix pass) | Status line, Retry button | `edgeCheck()` | yes |
+| **Advanced** (collapsed): voice service address override, Save, Use built-in (bugfix pass; was always visible and empty) | Details, Field, Save, Use built-in | `setEdgeProxy(url)` (empty = built-in `DEFAULT_TTS_ENDPOINT`) | yes |
 | Download chapter / book, cancel, delete (session 1) | Same box, rendered by tts-downloads | `__marginaliaTTSDownloads` | yes |
 | Voice presets | Chips | `applyAudioPreset(v)` | yes |
-| Device voice select + preview | Select + Preview | `setDeviceVoice(uri)`, `previewVoice` | yes |
 | Lock voice, storytelling cadence | Toggles | `setAudio` | yes |
 | Speed, pitch, volume | Sliders | `setAudio` | yes |
 | Highlight follow / keep / colour | Segmented | `setAudio` | yes |

@@ -90,6 +90,7 @@ export function deviceRows(list) {
     });
 }
 const rowMeta = (r) => [langLabel(r.lang), r.gender, r.note].filter(Boolean).join(' · ');
+let lastCheck = null;
 /** Builds the picker. `redraw` redraws the whole Audio tab (used after engine changes). */
 export function VoicePicker(redraw) {
     addStyle('v2-voice-picker', CSS);
@@ -113,17 +114,24 @@ export function VoicePicker(redraw) {
             status.append('Online voices are ready.');
         else {
             status.append(service.reason + ' Online voices may not play right now.');
-            status.append(Button({ label: 'Retry', icon: 'refresh', onClick: check }));
+            status.append(Button({ label: 'Retry', icon: 'refresh', onClick: () => { void check(true); } }));
         }
     };
-    async function check() {
+    async function check(force = true) {
         const n = ++checking;
+        // The Audio tab redraws after most changes; reuse a result from the last 30 s instead of asking again.
+        if (!force && lastCheck && Date.now() - lastCheck.at < 30000 && lastCheck.url === r.edgeProxyOverride()) {
+            service = lastCheck.state;
+            paintStatus();
+            return;
+        }
         service = { state: 'busy', reason: '' };
         paintStatus();
         const res = await r.edgeCheck();
         if (n !== checking)
             return;
         service = res.ok ? { state: 'ok', reason: '' } : { state: 'bad', reason: res.reason };
+        lastCheck = { at: Date.now(), url: r.edgeProxyOverride(), state: service };
         paintStatus();
     }
     const match = (row, q) => !q || (row.name + ' ' + row.id + ' ' + langLabel(row.lang) + ' ' + row.gender + ' ' + row.note).toLowerCase().includes(q);
@@ -196,7 +204,7 @@ export function VoicePicker(redraw) {
     search.input.addEventListener('input', () => { msg.hidden = true; paint(); });
     root.append(search.el, status, list);
     paint();
-    void check();
+    void check(false);
     // Device voices arrive late on iOS; repaint when they do.
     if (!r.voicesInfo().device.length)
         void r.loadVoices().then(paint);

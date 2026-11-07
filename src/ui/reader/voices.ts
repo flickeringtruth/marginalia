@@ -91,6 +91,8 @@ export function deviceRows(list: { uri: string; name: string; lang: string; loca
 }
 const rowMeta = (r: VoiceRow) => [langLabel(r.lang), r.gender, r.note].filter(Boolean).join(' · ');
 
+let lastCheck: { at: number; url: string; state: { state: 'busy' | 'ok' | 'bad'; reason: string } } | null = null;
+
 export interface PickerHandle { el: HTMLElement; advanced: HTMLElement }
 
 /** Builds the picker. `redraw` redraws the whole Audio tab (used after engine changes). */
@@ -113,15 +115,18 @@ export function VoicePicker(redraw: () => void): PickerHandle {
     else if (service.state === 'ok') status.append('Online voices are ready.');
     else {
       status.append(service.reason + ' Online voices may not play right now.');
-      status.append(Button({ label: 'Retry', icon: 'refresh', onClick: check }));
+      status.append(Button({ label: 'Retry', icon: 'refresh', onClick: () => { void check(true); } }));
     }
   };
-  async function check(): Promise<void> {
+  async function check(force = true): Promise<void> {
     const n = ++checking;
+    // The Audio tab redraws after most changes; reuse a result from the last 30 s instead of asking again.
+    if (!force && lastCheck && Date.now() - lastCheck.at < 30000 && lastCheck.url === r.edgeProxyOverride()) { service = lastCheck.state; paintStatus(); return; }
     service = { state: 'busy', reason: '' }; paintStatus();
     const res = await r.edgeCheck();
     if (n !== checking) return;
     service = res.ok ? { state: 'ok', reason: '' } : { state: 'bad', reason: res.reason };
+    lastCheck = { at: Date.now(), url: r.edgeProxyOverride(), state: service };
     paintStatus();
   }
 
@@ -185,7 +190,7 @@ export function VoicePicker(redraw: () => void): PickerHandle {
   search.input.addEventListener('input', () => { msg.hidden = true; paint(); });
 
   root.append(search.el, status, list);
-  paint(); void check();
+  paint(); void check(false);
   // Device voices arrive late on iOS; repaint when they do.
   if (!r.voicesInfo().device.length) void r.loadVoices().then(paint);
 

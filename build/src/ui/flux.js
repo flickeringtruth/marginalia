@@ -155,7 +155,10 @@ export function attachFlux(host) {
         size(inst);
     } update(); });
     inst.io.observe(canvas);
-    inst.ro = new ResizeObserver(() => size(inst));
+    // Resize work runs in the next frame, outside the observer callback (WebKit reports "ResizeObserver loop completed with undelivered notifications" otherwise).
+    let sizing = 0;
+    inst.ro = new ResizeObserver(() => { if (!sizing)
+        sizing = requestAnimationFrame(() => { sizing = 0; size(inst); }); });
     inst.ro.observe(host);
     loadNoise();
     return () => { inst.io?.disconnect(); inst.ro?.disconnect(); instances.delete(inst); canvas.remove(); update(); };

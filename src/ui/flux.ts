@@ -123,7 +123,9 @@ export function attachFlux(host: HTMLElement): () => void {
   if (noiseState === 'failed') fallback(inst);
   inst.io = new IntersectionObserver(es => { inst.visible = es[es.length - 1].isIntersecting; if (inst.visible) { size(inst); } update(); });
   inst.io.observe(canvas);
-  inst.ro = new ResizeObserver(() => size(inst));
+  // Resize work runs in the next frame, outside the observer callback (WebKit reports "ResizeObserver loop completed with undelivered notifications" otherwise).
+  let sizing = 0;
+  inst.ro = new ResizeObserver(() => { if (!sizing) sizing = requestAnimationFrame(() => { sizing = 0; size(inst); }); });
   inst.ro.observe(host);
   loadNoise();
   return () => { inst.io?.disconnect(); inst.ro?.disconnect(); instances.delete(inst); canvas.remove(); update(); };
