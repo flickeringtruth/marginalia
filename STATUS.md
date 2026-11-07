@@ -172,3 +172,12 @@
 **Check on a real iPhone:** Settings scroll, including a swipe that starts on a slider · Edge voices with no setup · Apple voice list and the iOS note · Safari's floating toolbar over the last Settings row · flux battery and smoothness on a long scroll.
 
 **Worker redeploy required: NO.** The Worker is unchanged and already live.
+
+## Follow-ups: v2 default, Edge batching, tests (2026-11-07, branch `feat/v2-default-batching`)
+
+- **v2 is the only interface.** The "New interface" switch and `marginalia.ui` are gone. Deleted layers: `library-ui`, `magic-motion`, `library-depth`, `library-type`, `ui-polish`, `ui-motion`, `ui-feedback`, `selection-touch`, `library`, `catalog-paging`, `tag-position` (its three imports moved into `index.html`), and `book-catalog` with its test. Not pruned yet: the engine's own old library/settings markup in `index.html` (hidden) and the unused old notes panel in `reader-tools.js` (`V2 = true`).
+- **Edge requests carry several sentences** (up to 700 characters, one paragraph at a time; 6 sentences per request in a real run, about six times fewer requests). The highlight stays one sentence, and storytelling cadence keeps one sentence per request. Trade-off: the first words start a little later. **Chapter audio downloaded before this change is fetched again** (its cache keys were per sentence).
+- **Tests in the repo:** `npm run e2e` (Playwright, Chromium + WebKit at iPhone SE/15 and desktop, voice Worker mocked). Covers Settings scroll to the last item, overlaps, one scroller/16 px inputs/no fixed-in-transform, theme with no flash, flux, library scroll kept, the voice picker and request batching. With the old touch guard put back, the Settings scroll tests fail on both engines. `.github/workflows/ci.yml` runs tsc, unit tests, a check that `build/` is current, and the e2e suite. First time locally: `npm run e2e:install`.
+- Not checked: the CI workflow itself has not run on GitHub yet; Firefox is still untested.
+
+**Worker redeploy required: NO.**

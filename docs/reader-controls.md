@@ -63,7 +63,7 @@ Columns: **v2 control** is what the user taps in v2; **handler** is the engine f
 | Swipe sensitivity, scroll speed, animation speed | Sliders | `setSetting` | yes |
 | Keyboard shortcuts list | List (not a control) | — | yes |
 | Reset appearance | Button | `resetAppearance()` | yes |
-| New interface (preview) | Toggle (Interface group) | localStorage `marginalia.ui` + reload | yes |
+| ~~New interface (preview)~~ | Removed: v2 is the only interface | — | n/a |
 
 ## 4. Settings › Audio (index.html `buildAudioSettings`, session 1)
 

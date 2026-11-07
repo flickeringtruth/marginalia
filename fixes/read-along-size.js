@@ -3,29 +3,14 @@
    They used to change the book's text size. The book size is still set in Settings.
    Loaded from reader-tools.js as a module.
    It also loads the UI layer modules, one after another in this order.
-   With localStorage "marginalia.ui" === "v2", the library layers that v2 replaces are skipped,
-   so v2 replaces them instead of stacking on top (see docs/ui-audit.md). */
-const V2 = (() => { try { return localStorage.getItem('marginalia.ui') === 'v2'; } catch (e) { return false; } })();
-const REPLACED_BY_V2 = [
-  './library-ui.js', './magic-motion.js', './library-depth.js', './library-type.js',   // session 2: library
-  './ui-polish.js', './ui-motion.js', './ui-feedback.js', './selection-touch.js'        // session 3: reader bars, sheets, selection menu
-];
+   The v2 interface is the only interface. The layers it replaced were deleted (see docs/ui-audit.md). */
 const LAYERS = [
-  './ui-polish.js',
-  './ui-motion.js',
-  './ui-feedback.js',
-  './selection-touch.js',
   './book-open.js',
   './library-polish.js',
-  './library-ui.js',
-  './magic-motion.js',
-  './library-depth.js',
-  './library-type.js',
   '../build/src/tts-downloads.js',
-  '../build/src/ui/v2.js'          // v2 entry: only adds the Settings switch unless v2 is on
+  '../build/src/ui/v2.js'          // v2 entry: tokens, components, library, reader, Discover
 ];
 for (const path of LAYERS) {
-  if (V2 && REPLACED_BY_V2.includes(path)) continue;
   try { await import(path); } catch (e) { console.error('Could not load ' + path, e); }
 }
 

@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # TypeScript build (zero errors) and the unit tests
+      - run: npm test
+      # build/ is committed, so it must match the sources
+      - name: build/ is up to date
+        run: git diff --exit-code -- build || (echo "Run npm run build and commit build/" && exit 1)
+      # End-to-end: Chromium and WebKit, phone and desktop sizes (the voice Worker is mocked)
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

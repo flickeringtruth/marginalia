@@ -10,5 +10,5 @@
     "outDir": "build",
     "newLine": "lf"
   },
-  "include": ["vocabulary.ts", "book-catalog.ts", "speed-reader-core.ts", "src/**/*.ts"]
+  "include": ["vocabulary.ts", "speed-reader-core.ts", "src/**/*.ts"]
 }

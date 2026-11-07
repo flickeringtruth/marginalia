@@ -84,9 +84,8 @@
 
   // Waits for the library card to appear, then clicks it. That is how the app opens a book.
   async function openCard(id) {
-    // v2 library has no old grid cards to click, so it opens the book directly.
-    let v2 = false; try { v2 = localStorage.getItem('marginalia.ui') === 'v2'; } catch (e) { /* ignore */ }
-    if (v2 && window.__reader && window.__reader.openBook) { await window.__reader.openBook(id); return true; }
+    // The v2 library has no grid cards to click, so it opens the book directly.
+    if (window.__reader && window.__reader.openBook) { await window.__reader.openBook(id); return true; }
     const t0 = Date.now();
     while (Date.now() - t0 < 4000) {
       const cover = document.querySelector('#libGrid .card[data-ml-id="' + id + '"] .cover-btn');

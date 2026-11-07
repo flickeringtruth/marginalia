@@ -6,7 +6,6 @@ import { Button, IconButton, Chip, Toggle, Slider, Segmented, Sheet, showToast }
 import { VoicePicker } from './voices.js';
 import { appTheme, setAppTheme } from '../theme.js';
 import { attachFlux, fluxEnabled, setFluxEnabled } from '../flux.js';
-const V2_KEY = 'marginalia.ui';
 const CSS = `
 .v2-settings .v2-sheet-body>.v2-seg{margin-bottom:var(--v2-s4)}
 .v2-settings .grp{padding:var(--v2-s4) 0;border-top:1px solid var(--v2-line)}
@@ -146,19 +145,7 @@ function appearance(redraw) {
     }
     const paged = S.layout === 'paged';
     out.push(grp('Reading', seg('Mode', 'layout', [['paged', 'Pages'], ['scroll', 'Scroll']]), paged ? seg('Pages', 'spread', [['auto', 'Auto'], ['single', 'Single'], ['double', 'Two-up']]) : null, paged ? seg('Page turn', 'turn', [['slide', 'Slide'], ['fade', 'Fade'], ['curl', '3D curl'], ['none', 'None']]) : null, paged ? toggle('Edge-tap navigation', 'tapZones') : null, paged ? slider('Swipe sensitivity', 'swipeSens', 1, 10, 1, v => String(v)) : null, !paged ? slider('Scroll speed', 'scrollSpeed', 0.4, 2, 0.05, v => v.toFixed(2) + '×') : null, !paged ? seg('Momentum', 'momentum', [['off', 'Off'], ['low', 'Low'], ['normal', 'Normal']]) : null, seg('Progress', 'progress', [['scrubber', 'Scrubber'], ['bar', 'Bar'], ['both', 'Both']]), hint('Tapping the page shows or hides the bars. Turn pages with the arrows, a swipe or the keyboard, or turn on edge-tap navigation to use the left and right 30% of the page. “Two-up” shows a two-page spread in landscape.')));
-    const v2Toggle = Toggle({ label: 'New interface (preview)', checked: true, onChange: on => {
-            try {
-                if (on)
-                    localStorage.setItem(V2_KEY, 'v2');
-                else
-                    localStorage.removeItem(V2_KEY);
-            }
-            catch {
-                return;
-            }
-            location.reload();
-        } });
-    out.push(grp('Interface', isPdf ? null : toggle('Highlight mode (press and hold to select text)', 'highlightMode'), toggle('Immersive bars (bars float over the text)', 'immersive'), isPdf ? null : toggle('Keep dictionary button visible when bars are hidden', 'dictFloat'), toggle('Paper texture', 'paper'), slider('Animation speed', 'uiSpeed', 150, 700, 10, v => v + ' ms'), v2Toggle, hint('Turn off the new interface to go back to the previous one. The page reloads; books and settings stay.')));
+    out.push(grp('Interface', isPdf ? null : toggle('Highlight mode (press and hold to select text)', 'highlightMode'), toggle('Immersive bars (bars float over the text)', 'immersive'), isPdf ? null : toggle('Keep dictionary button visible when bars are hidden', 'dictFloat'), toggle('Paper texture', 'paper'), slider('Animation speed', 'uiSpeed', 150, 700, 10, v => v + ' ms')));
     const keys = [['← →', 'Previous / next page'], ['Space', 'Next page (Shift: previous)'], ['↑ ↓', 'Scroll a little (scroll mode)'], ['Shift+A', 'Toggle auto scroll'],
         ['+ −', 'Text size'], ['T', 'Contents'], ['H', 'Highlights'], ['S', 'Appearance'], ['D', 'Dictionary / look up selection'], ['I', 'AI assistant'],
         ['P', 'Read aloud: play / pause'], ['[ ]', 'Read aloud: back / forward 5 s'], ['A', 'Audio settings'], ['M', 'Show / hide controls'], ['L', 'Library'], ['Esc', 'Close / clear selection']];
