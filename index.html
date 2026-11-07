@@ -10,8 +10,8 @@
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#ffffff">
 <title>Marginalia</title>
-<!-- v2 UI switch (localStorage "marginalia.ui" = "v2"): marks <html> before first paint so the old library never flashes. No effect when unset. -->
-<script>try{if(localStorage.getItem('marginalia.ui')==='v2')document.documentElement.classList.add('ui-v2')}catch(e){}</script>
+<!-- v2 is the only interface: mark <html> before first paint so the old library never flashes. -->
+<script>document.documentElement.classList.add('ui-v2')</script>
 <style>html.ui-v2 #library{display:none!important}</style>
 <!-- App theme (v2 chrome). Set before first paint so the screen never flashes; the reading-page themes are separate.
      Contrast (WCAG AA, every text token on bg, surface and raised): text 11.8-18.4:1; muted 4.8-6.4:1 dark, 4.8-5.5:1 light;
@@ -6334,13 +6334,9 @@ init();
 </script>
 <script type="module" src="extensions.js"></script>
 <script type="module" src="build/vocabulary.js"></script>
-<script type="module" src="build/book-catalog.js"></script>
 <script type="module" src="fixes/speech.js"></script>
-<script type="module" src="fixes/library.js"></script>
 <script type="module" src="fixes/voices.js"></script>
 <script type="module" src="fixes/reader-tools.js"></script>
-<script type="module" src="fixes/catalog-paging.js"></script>
-<script type="module" src="fixes/tag-position.js"></script>
 <script type="module" src="fixes/read-on-site.js"></script>
 <script type="module" src="fixes/covers.js"></script>
 <script type="module" src="fixes/user-data.js"></script>

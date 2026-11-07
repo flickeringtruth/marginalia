@@ -12,7 +12,7 @@ import './read-along-size.js';
   const $ = s => document.querySelector(s);
   // v2 UI (localStorage "marginalia.ui" === "v2") has its own panel, Note button and editors (src/ui/reader).
   // This file then only paints notes into the text and hands taps on them to v2.
-  const V2 = (() => { try { return localStorage.getItem('marginalia.ui') === 'v2'; } catch (e) { return false; } })();
+  const V2 = true;   // v2 is the only interface; the old panel below is unused and can be pruned
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const toast = msg => {
     const t = $('#toast'); if (!t) return;
