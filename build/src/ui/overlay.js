@@ -57,6 +57,9 @@ export function openLayer(panel, opts) {
     }
     panel.style.zIndex = zFor(opts.kind, depth);
     root.appendChild(panel);
+    // A reused panel (e.g. Discover) may still carry the fill of its last fade-out. getAnimations()
+    // only sees it while the panel is in the document, so this runs after appending.
+    panel.getAnimations().forEach(a => a.cancel());
     stack.push(layer);
     updateInert();
     if (opts.modal) {
@@ -89,8 +92,14 @@ function closeLayer(layer, fromHistory = false) {
     layer.closing = true;
     stack.splice(stack.indexOf(layer), 1);
     updateInert();
-    const finish = () => { layer.panel.remove(); if (layer.backdrop)
-        layer.backdrop.remove(); };
+    const finish = () => {
+        if (layer.backdrop)
+            layer.backdrop.remove();
+        if (stack.some(l => l.panel === layer.panel))
+            return; // the same panel was opened again meanwhile
+        layer.panel.getAnimations().forEach(a => a.cancel());
+        layer.panel.remove();
+    };
     const anim = !reduceMotion() && layer.animateOut ? layer.animateOut(layer.panel) : null;
     if (layer.backdrop && layer.modal && !reduceMotion())
         layer.backdrop.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
