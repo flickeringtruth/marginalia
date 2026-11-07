@@ -25,6 +25,15 @@ These effects were ported from Magic UI's React components into plain JavaScript
 | JSZip 3.10.1 | Opens EPUB files | MIT (per the package) | https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js |
 | PDF.js 3.11.174 | Renders PDF pages | Apache-2.0 (per the package) | https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js |
 
+## Vendored (copied into this repository)
+
+| Component | Use | Licence | Source | Files |
+|---|---|---|---|---|
+| @floating-ui/dom 1.8.0 | Positions the v2 text-selection menu next to the selection | MIT, Copyright (c) 2021-present Floating UI contributors (`vendor/floating-ui/LICENSE`) | https://www.npmjs.com/package/@floating-ui/dom/v/1.8.0 (`dist/floating-ui.dom.browser.mjs`) | `vendor/floating-ui/floating-ui.dom.js` |
+| @floating-ui/core 1.8.0 | Dependency of the above | MIT, same copyright | https://www.npmjs.com/package/@floating-ui/core/v/1.8.0 (`dist/floating-ui.core.browser.mjs`) | `vendor/floating-ui/floating-ui.core.js` |
+
+Only change: the import of `@floating-ui/core` in `floating-ui.dom.js` points to `./floating-ui.core.js`, and both files use `.js` instead of `.mjs` so GitHub Pages serves them as JavaScript.
+
 ## Researched for ideas (not copied)
 
 | Project | Why it was reviewed | Licence status |

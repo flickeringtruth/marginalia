@@ -7,6 +7,8 @@ const CSS = `
 .v2-icon{width:22px;height:22px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .v2 :focus{outline:none}
 .v2 :focus-visible,#v2-portal :focus-visible{outline:none;box-shadow:var(--v2-focus)}
+/* the hidden attribute always wins over component display rules */
+.v2 [hidden],#v2-portal [hidden]{display:none!important}
 .v2-sr{position:absolute!important;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 /* Button */
@@ -192,12 +194,18 @@ export function Toggle(o) {
         o.onChange(b.checked); });
     return b;
 }
+/* The engine's global range style fills the track up to --p; keep it in step with the value. */
+export function rangeFill(input) {
+    const min = Number(input.min) || 0, max = Number(input.max) || 100;
+    input.style.setProperty('--p', ((Number(input.value) - min) / (max - min || 1) * 100) + '%');
+}
 export function Slider(o) {
     const id = nextId('v2-sl');
     const input = h('input', { type: 'range', id, min: o.min, max: o.max, step: o.step ?? 1 });
     input.value = String(o.value);
+    rangeFill(input);
     const out = h('output', { for: id, text: (o.format || String)(o.value) });
-    input.addEventListener('input', () => { const v = Number(input.value); out.textContent = (o.format || String)(v); if (o.onInput)
+    input.addEventListener('input', () => { const v = Number(input.value); rangeFill(input); out.textContent = (o.format || String)(v); if (o.onInput)
         o.onInput(v); });
     return h('label', { class: 'v2-slider' }, h('span', { text: o.label }), out, input);
 }

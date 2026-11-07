@@ -10,6 +10,9 @@ import './read-along-size.js';
 
   const R = () => window.__reader;
   const $ = s => document.querySelector(s);
+  // v2 UI (localStorage "marginalia.ui" === "v2") has its own panel, Note button and editors (src/ui/reader).
+  // This file then only paints notes into the text and hands taps on them to v2.
+  const V2 = (() => { try { return localStorage.getItem('marginalia.ui') === 'v2'; } catch (e) { return false; } })();
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const toast = msg => {
     const t = $('#toast'); if (!t) return;
@@ -117,6 +120,7 @@ import './read-along-size.js';
     });
   }
   const schedule = () => { if (!queued) { queued = true; requestAnimationFrame(paint); } };
+  window.__marginaliaReaderTools = { repaint: schedule, unwrapNote };
 
   // ---- editors ----
   function overlay(html, bind) {
@@ -361,13 +365,14 @@ import './read-along-size.js';
     // The stage captures the pointer, so look up the element under the finger instead of e.target.
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const m = el && el.closest && el.closest('mark.ml-note');
-    if (m) openNoteEditor(m.dataset.nk, false);
+    if (m) { if (V2 && window.__marginaliaOpenNote) window.__marginaliaOpenNote(m.dataset.nk); else openNoteEditor(m.dataset.nk, false); }
   }, true);
 
   function build() {
     const more = $('#moreBtn');
     if (!more || $('#mlBookmarkBtn')) return;
 
+    if (!V2) {
     const btn = document.createElement('button');
     btn.id = 'mlBookmarkBtn'; btn.type = 'button'; btn.className = 'icon-btn';
     btn.setAttribute('aria-label', 'Bookmarks and notes'); btn.title = 'Bookmarks and notes';
@@ -409,6 +414,7 @@ import './read-along-size.js';
     const menu = document.getElementById('selMenu');
     if (menu) new MutationObserver(addNoteButton).observe(menu, { childList: true });
     addNoteButton();
+    }
 
     ['#viewport', '#scroller'].forEach(s => {
       const n = $(s);

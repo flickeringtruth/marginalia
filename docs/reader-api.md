@@ -42,3 +42,9 @@ Session 1 added `buildSpeechModel`, `edgeProxyUrl`, `retryAfterMs` and `toast`.
 | `__marginaliaBookOpenFly(cover, id)` | `fixes/book-open.js` | Book-opening animation from a v2 cover, by book id. |
 | `__marginaliaSaveBook(b)` | `src/ui/library.ts` in v2, `fixes/library.js` otherwise | Discover's "Save to device". |
 | `__marginaliaTTSDownloads` | `src/tts-downloads.ts` | Offline read-aloud audio. |
+
+## Added in session 3 (v2 reader)
+
+`ui` (overrides: `openSettings`, `openContents`, `openMore`, which the engine's own functions use when set), `closeBook`, `dictionaryButton`, `clearSelection`, `selectionInfo()`, `selectionAction(a, color)`, `moreItems(where)`, `moreAction(id)`, `chapterTitle(ch)`, `keepChrome()`, `percentLabel(p)`, `goToPercent(p)`, `themes()`, `fonts()`, `resetAppearance()`, `audioInfo()`, `voicesInfo()`, `loadVoices()`, `voicesRetry()`, `setEdgeProxy`, `setEdgeVoice`, `setDeviceVoice`, `applyAudioPreset`, `resetAudio`, `previewVoice`, `runSpeechTest`, `speechReport`, `copyText`.
+
+Events: `reader:progress`, `reader:selection` (`detail.open`), `reader:audio`, `reader:annotations`, `reader:speechtest` (`detail.message`, `detail.report`). Globals: `__marginaliaReaderTools`, `__marginaliaOpenNote`, `__marginaliaReadAlong`; `__marginaliaTTSDownloads` gained `render`, `downloadChapter`, `downloadBook`, `cancel`, `status`.

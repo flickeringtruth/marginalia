@@ -255,10 +255,11 @@ async function refreshStorage() {
     }
     catch { /* estimate unsupported */ }
 }
+/* Draws the box into the engine's #ttsDownloads and into any v2 container marked [data-tts-downloads]. */
 function render() {
-    const box = document.getElementById('ttsDownloads');
+    const boxes = Array.from(document.querySelectorAll('#ttsDownloads, [data-tts-downloads]'));
     const r = reader();
-    if (!box || !r)
+    if (!boxes.length || !r)
         return;
     const book = r.App.book;
     let html = '<h3 style="margin:14px 0 6px">Offline listening</h3>';
@@ -293,11 +294,12 @@ function render() {
         if (chapters.length && !running)
             html += '<button class="small-btn" data-dl="delete" style="margin-top:8px">Delete downloads for this book</button>';
     }
-    box.innerHTML = html;
+    boxes.forEach(box => { box.innerHTML = html; });
+    document.dispatchEvent(new CustomEvent('tts-downloads:change'));
 }
 function onClick(e) {
     const t = e.target;
-    const btn = t && t.closest ? t.closest('#ttsDownloads [data-dl]') : null;
+    const btn = t && t.closest ? t.closest('#ttsDownloads [data-dl], [data-tts-downloads] [data-dl]') : null;
     const r = reader();
     if (!btn || !r || !r.App.book)
         return;
@@ -331,7 +333,14 @@ function watch() {
     render();
 }
 if (!window.__marginaliaTTSDownloads) {
-    window.__marginaliaTTSDownloads = { lookup };
+    window.__marginaliaTTSDownloads = {
+        lookup,
+        render: () => { render(); void refreshStorage(); },
+        downloadChapter: () => { const r = reader(); return r && r.App.book ? download([currentChapter(r)]).then(refreshStorage) : Promise.resolve(); },
+        downloadBook: () => { const r = reader(), b = r && r.App.book; return b ? download(b.chapters.map((_, i) => i)).then(refreshStorage) : Promise.resolve(); },
+        cancel,
+        status: () => ({ running: !!job, text: statusText, progress })
+    };
     document.addEventListener('click', onClick);
     if (document.readyState === 'loading')
         document.addEventListener('DOMContentLoaded', watch);

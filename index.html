@@ -2483,8 +2483,39 @@ function showMenu() {
   // keep the selection visible above the sheet in scroll mode
   const rects = visibleRects(selRects()), H = innerHeight, mh = m.offsetHeight;
   if (rects.length && App.r && App.r.engine) { const lowest = Math.max(...rects.map(r => r.bottom)); if (lowest > H - mh - 12) App.r.engine.animateTo(App.r.engine.top + (lowest - (H - mh - 24)), 250); }
+  document.dispatchEvent(new CustomEvent('reader:selection', { detail: { open: true } }));
 }
-function hideMenu() { $('#selMenu').classList.remove('show'); }
+function hideMenu() { $('#selMenu').classList.remove('show'); document.dispatchEvent(new CustomEvent('reader:selection', { detail: { open: false } })); }
+/* What the selection menu needs to draw itself (used by the v2 menu). */
+function selectionInfo() {
+  const isHl = !!Sel.hlId;
+  return { active: Sel.active || isHl, isHighlight: isHl, color: isHl ? (HL.get(Sel.hlId) || {}).color || null : null,
+    colors: Object.assign({}, HL_COLORS), canShare: !!navigator.share, canSpeak: TTS_OK,
+    rects: visibleRects(selRects()).map(r => ({ left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height })) };
+}
+/* One place for every selection-menu action, shared by the engine menu and the v2 menu. */
+async function selectionAction(a, color) {
+  const text = selectedText();
+  if (a === 'color') {
+    if (Sel.hlId) { HL.recolor(Sel.hlId, color); clearSelection(); }
+    else if (Sel.active) { const root = Sel.root, ch = Sel.ch, s = Sel.start, en = Sel.end; clearSelection(); HL.add(ch, s, en, color, root); }
+    updateDrawerIfOpen(); document.dispatchEvent(new CustomEvent('reader:annotations')); return;
+  }
+  if (a === 'copy') { await copyText(text); clearSelection(); }
+  else if (a === 'define') { clearSelection(); openDictionary(text); }
+  else if (a === 'ask-ai') {
+    const context = selectionAiContext();
+    clearSelection();
+    AI.open('Explain this in the context of the book: ' + text, context);
+  }
+  else if (a === 'speak') {
+    let ch = Sel.ch, off = Sel.start;
+    if (Sel.hlId) { const h = HL.get(Sel.hlId); if (h) { ch = h.ch; off = h.start; } }
+    clearSelection(); TTS.playFrom(ch, off);
+  }
+  else if (a === 'share') { clearSelection(); try { await navigator.share({ text: '“' + text + '” — ' + (App.book.meta.title || '') }); } catch (err) { /* cancelled */ } }
+  else if (a === 'remove') { const id = Sel.hlId; clearSelection(); HL.remove(id); updateDrawerIfOpen(); toast('Highlight removed'); document.dispatchEvent(new CustomEvent('reader:annotations')); }
+}
 async function copyText(t) {
   try { await navigator.clipboard.writeText(t); }
   catch (e) { const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (err) { /* ignore */ } ta.remove(); }
@@ -2495,27 +2526,8 @@ function bindMenu() {
   m.addEventListener('pointerdown', e => e.stopPropagation());
   m.addEventListener('click', async e => {
     const b = e.target.closest('button'); if (!b) return;
-    const text = selectedText();
-    if (b.dataset.color) {
-      if (Sel.hlId) { HL.recolor(Sel.hlId, b.dataset.color); clearSelection(); }
-      else if (Sel.active) { const root = Sel.root, ch = Sel.ch, s = Sel.start, en = Sel.end; clearSelection(); HL.add(ch, s, en, b.dataset.color, root); }
-      updateDrawerIfOpen(); return;
-    }
-    const a = b.dataset.a;
-    if (a === 'copy') { await copyText(text); clearSelection(); }
-    else if (a === 'define') { clearSelection(); openDictionary(text); }
-    else if (a === 'ask-ai') {
-      const context = selectionAiContext();
-      clearSelection();
-      AI.open('Explain this in the context of the book: ' + text, context);
-    }
-    else if (a === 'speak') {
-      let ch = Sel.ch, off = Sel.start;
-      if (Sel.hlId) { const h = HL.get(Sel.hlId); if (h) { ch = h.ch; off = h.start; } }
-      clearSelection(); TTS.playFrom(ch, off);
-    }
-    else if (a === 'share') { clearSelection(); try { await navigator.share({ text: '“' + text + '” — ' + (App.book.meta.title || '') }); } catch (err) { /* cancelled */ } }
-    else if (a === 'remove') { const id = Sel.hlId; clearSelection(); HL.remove(id); updateDrawerIfOpen(); toast('Highlight removed'); }
+    if (b.dataset.color) return selectionAction('color', b.dataset.color);
+    if (b.dataset.a) return selectionAction(b.dataset.a);
   });
 }
 function showHighlightMenu(id, markEl) {
@@ -4180,6 +4192,7 @@ const AudioUI = {
     this.syncBookCover();
     this.sleepLabel(); this.progress();
     if (Sheets.current === 'settingsSheet') syncAudioSettingsUI();
+    document.dispatchEvent(new CustomEvent('reader:audio'));
   },
   syncBookCover() {
     const meta = App.book && App.book.meta;
@@ -4222,6 +4235,7 @@ const AudioUI = {
     $('#abMiniBar').style.width = (p * 100) + '%';
     $('#abMiniTime').textContent = '-' + fmtTime(total - el);
     $('#abMiniTitle').textContent = chapterTitleFor(TTS.ch);
+    document.dispatchEvent(new CustomEvent('reader:audio'));
     const chunk = TTS.chunk();
     if (chunk) {
       const key = TTS.ch + ':' + chunk.s;
@@ -4365,7 +4379,7 @@ const AudioUI = {
     $('#abPopupClose').focus({ preventScroll: true });
   },
   closePopup() { document.body.classList.remove('audio-popup-open'); },
-  chip(show) { $('#abChip').classList.toggle('show', !!show && TTS.active()); },
+  chip(show) { $('#abChip').classList.toggle('show', !!show && TTS.active()); document.dispatchEvent(new CustomEvent('reader:audio')); },
   voicesChanged() { if ($('#voiceSelect')) fillVoiceSelect(); }
 };
 setInterval(() => { if (!$('#audioBar').classList.contains('hidden')) AudioUI.sleepLabel(); }, 1000);
@@ -4518,22 +4532,16 @@ function bindAudioSettings() {
     if (b.id === 'edgePreview') { previewVoice(); return; }
     if (b.id === 'edgeVoicePrev') { stepEdgeVoice(-1); return; }
     if (b.id === 'edgeVoiceNext') { stepEdgeVoice(1); return; }
-    if (b.id === 'edgeSave') {
-      const proxy = $('#edgeProxy').value.trim().replace(/\/+$/, '');
-      if (proxy && !/^https:\/\//i.test(proxy)) { toast('Enter a secure https:// Worker URL'); return; }
-      A.edgeProxy = proxy; saveAudioSettings();
-      try { if (proxy) localStorage.setItem('marginalia.voiceProxy', proxy); else localStorage.removeItem('marginalia.voiceProxy'); } catch (e) { /* ignore */ }
-      TTS.onlineDown = false; TTS.models.clear(); syncAudioSettingsUI(); TTS.restartSoon(); toast(proxy ? 'EdgeTTS Worker URL saved' : 'EdgeTTS Worker URL cleared'); return;
-    }
+    if (b.id === 'edgeSave') { setEdgeProxy($('#edgeProxy').value); return; }
     const ab = b.closest('[data-amb]'); if (ab) { Ambient.start(b.dataset.v); syncAudioSettingsUI(); return; }
     if (b.id === 'ttsTest') { runSpeechTest(); return; }
     if (b.id === 'ttsCopy') { copyText(speechReport()); return; }
     if (b.id === 'sleepSet') { const v = parseInt($('#sleepCustom').value, 10); if (v > 0) { setAudio('sleep', clamp(v, 1, 600)); toast('Sleep timer: ' + clamp(v, 1, 600) + ' min'); } return; }
     if (b.dataset.atoggle) { setAudio(b.dataset.atoggle, !A[b.dataset.atoggle]); return; }
-    if (b.dataset.aact === 'reset') { Object.assign(A, A_DEFAULTS); saveAudioSettings(); applyAudioColor(); TTS.restartSoon(); syncAudioSettingsUI(); AudioUI.sync(); toast('TTS settings reset'); return; }
+    if (b.dataset.aact === 'reset') { resetAudio(); return; }
     const sg = b.closest('[data-aseg]'); if (!sg) return;
     const key = sg.dataset.aseg, v = b.dataset.v;
-    if (key === 'preset') { const p = AUDIO_PRESETS[v]; A.preset = v; A.rate = p.rate; A.pitch = p.pitch; A.cadence = !!p.cadence; A.voiceLocked = true; const best = Voices.best(bookLang(), v === 'story' ? 'deep' : v); A.voiceURI = v === 'auto' || !best ? '' : best.voiceURI; saveAudioSettings(); TTS.restartSoon(); fillVoiceSelect(); syncAudioSettingsUI(); AudioUI.sync(); return; }
+    if (key === 'preset') { applyAudioPreset(v); return; }
     setAudio(key, key === 'sleep' ? parseInt(v, 10) : v);
   });
   body.addEventListener('input', e => {
@@ -4544,10 +4552,28 @@ function bindAudioSettings() {
     setAudio(i.dataset.aset, parseFloat(i.value));
   });
   body.addEventListener('change', e => {
-    if (e.target.id === 'edgeVoice') { A.edgeVoice = e.target.value; A.voiceLocked = true; saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); TTS.restartSoon(); syncAudioSettingsUI(); return; }
-    if (e.target.id === 'voiceSelect') { A.preset = e.target.value ? 'custom' : 'auto'; A.voiceLocked = true; setAudio('voiceURI', e.target.value); fillVoiceSelect(); syncAudioSettingsUI(); }
+    if (e.target.id === 'edgeVoice') { setEdgeVoice(e.target.value); return; }
+    if (e.target.id === 'voiceSelect') setDeviceVoice(e.target.value);
   });
 }
+/* Audio settings actions, shared by the engine panel and the v2 Settings › Audio tab. */
+function setEdgeProxy(raw) {
+  const proxy = String(raw || '').trim().replace(/\/+$/, '');
+  if (proxy && !/^https:\/\//i.test(proxy)) { toast('Enter a secure https:// Worker URL'); return false; }
+  A.edgeProxy = proxy; saveAudioSettings();
+  try { if (proxy) localStorage.setItem('marginalia.voiceProxy', proxy); else localStorage.removeItem('marginalia.voiceProxy'); } catch (e) { /* ignore */ }
+  TTS.onlineDown = false; TTS.models.clear(); syncAudioSettingsUI(); TTS.restartSoon(); toast(proxy ? 'EdgeTTS Worker URL saved' : 'EdgeTTS Worker URL cleared');
+  return true;
+}
+function applyAudioPreset(v) {
+  const p = AUDIO_PRESETS[v]; if (!p) return;
+  A.preset = v; A.rate = p.rate; A.pitch = p.pitch; A.cadence = !!p.cadence; A.voiceLocked = true;
+  const best = Voices.best(bookLang(), v === 'story' ? 'deep' : v); A.voiceURI = v === 'auto' || !best ? '' : best.voiceURI;
+  saveAudioSettings(); TTS.restartSoon(); fillVoiceSelect(); syncAudioSettingsUI(); AudioUI.sync();
+}
+function setEdgeVoice(v) { A.edgeVoice = v; A.voiceLocked = true; saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); TTS.restartSoon(); syncAudioSettingsUI(); AudioUI.sync(); }
+function setDeviceVoice(uri) { A.preset = uri ? 'custom' : 'auto'; A.voiceLocked = true; setAudio('voiceURI', uri); fillVoiceSelect(); syncAudioSettingsUI(); }
+function resetAudio() { Object.assign(A, A_DEFAULTS); saveAudioSettings(); applyAudioColor(); TTS.restartSoon(); syncAudioSettingsUI(); AudioUI.sync(); toast('TTS settings reset'); }
 function speechReport(extra) {
   const v = TTS.voice(); let ss = {}; let top = 'n/a';
   try { ss = { speaking: speechSynthesis.speaking, pending: speechSynthesis.pending, paused: speechSynthesis.paused }; } catch (e) { ss = { error: e.message }; }
@@ -4568,7 +4594,7 @@ function speechReport(extra) {
 let lastTest = null;
 function runSpeechTest() {
   const out = $('#ttsTestResult'), rep = $('#ttsReport');
-  if (!TTS_OK) { out.textContent = '✗ This browser has no speech engine (speechSynthesis missing).'; rep.textContent = speechReport(); rep.classList.remove('hidden'); return; }
+  if (!TTS_OK) { out.textContent = '✗ This browser has no speech engine (speechSynthesis missing).'; rep.textContent = speechReport(); rep.classList.remove('hidden'); document.dispatchEvent(new CustomEvent('reader:speechtest', { detail: { message: out.textContent, report: rep.textContent } })); return; }
   const wasActive = TTS.state === 'playing' || TTS.state === 'loading';
   if (wasActive) TTS.pause();
   const go = () => {
@@ -4595,6 +4621,7 @@ function runSpeechTest() {
       else if (busy) msg = '⚠ The engine says it is speaking but sends no events. If you heard the sentence, reading should still work on estimated timing.';
       else msg = '✗ The browser accepted the request but never started speaking. Check Silent mode/volume, try another voice, or open the file in Safari/Chrome directly (not inside another app’s preview).';
       out.textContent = msg; rep.textContent = speechReport(ev); rep.classList.remove('hidden');
+      document.dispatchEvent(new CustomEvent('reader:speechtest', { detail: { message: msg, report: rep.textContent } }));
     };
     setTimeout(finish, 8000);
   };
@@ -4625,7 +4652,10 @@ function previewVoice() {
     speechSynthesis.speak(u); TTS.unlocked = true;
   } catch (e) { toast('Preview failed'); }
 }
+/* v2 UI (src/ui) registers replacements here; the engine's own sheets are used when it hasn't. */
+const UI = {};
 function openSettings(tab) {
+  if (UI.openSettings) return UI.openSettings(tab || 'look');
   syncSettingsUI(); syncAudioSettingsUI();
   const t = tab || 'look';
   $$('#setTabs button').forEach(b => b.classList.toggle('on', b.dataset.stab === t));
@@ -4716,22 +4746,42 @@ const ICO = {
   look: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h16"/></svg>'
 };
 function menuItem(id, ico, title, sub) { return `<button class="menu-item" data-mi="${id}"><span class="mi-ico">${ico}</span><span>${esc(title)}<small>${esc(sub)}</small></span></button>`; }
-function openMore(where) {
+/* The More menu's rows, shared by the engine sheet and the v2 sheet. */
+function moreItems(where) {
   const inReader = where === 'reader' && App.book;
   const isPdf = inReader && App.book.type === 'pdf';
-  let html = '';
-  if (inReader && !isPdf) html += menuItem('hl', ICO.hl, 'Highlights', HL.list.length + (HL.list.length === 1 ? ' highlight' : ' highlights') + ' in this book');
+  const items = [];
+  if (inReader && !isPdf) items.push({ id: 'hl', title: 'Highlights', sub: HL.list.length + (HL.list.length === 1 ? ' highlight' : ' highlights') + ' in this book' });
   if (inReader) {
-    html += menuItem('autoscroll', '<svg viewBox="0 0 24 24"><path d="M12 3v18M7 8l5-5 5 5M7 16l5 5 5-5"/></svg>', 'Auto scroll', 'Hands-free continuous scrolling');
-    html += menuItem('speed', '<svg viewBox="0 0 24 24"><path d="M4 12h16M13 5l7 7-7 7"/><path d="M4 7h5M4 17h5"/></svg>', 'Focus-word speed read', 'Show one word at a time');
+    items.push({ id: 'autoscroll', title: 'Auto scroll', sub: 'Hands-free continuous scrolling' });
+    items.push({ id: 'speed', title: 'Focus-word speed read', sub: 'Show one word at a time' });
   }
-  html += menuItem('ai', ICO.ai, 'AI Assistant', inReader ? 'Ask about the page you’re reading' : 'Ask questions about books and texts');
-  if (isPdf) html += menuItem('convcur', ICO.conv, 'Convert this PDF to EPUB', 'Reflowable text with themes, highlights and read-aloud');
-  if (!inReader) html += menuItem('convpick', ICO.conv, 'Convert a PDF to EPUB', 'Pick a PDF from your device');
-  html += menuItem('amb', ICO.amb, 'Ambient sound', Ambient.kind !== 'off' ? 'Playing: ' + Ambient.label(Ambient.kind) : 'Rain, fireplace, ocean, brown noise');
-  if (!inReader) html += menuItem('look', ICO.look, 'Appearance', 'Themes, gradient, fonts, animations');
-  $('#moreList').innerHTML = html;
+  items.push({ id: 'ai', title: 'AI Assistant', sub: inReader ? 'Ask about the page you’re reading' : 'Ask questions about books and texts' });
+  if (isPdf) items.push({ id: 'convcur', title: 'Convert this PDF to EPUB', sub: 'Reflowable text with themes, highlights and read-aloud' });
+  if (!inReader) items.push({ id: 'convpick', title: 'Convert a PDF to EPUB', sub: 'Pick a PDF from your device' });
+  items.push({ id: 'amb', title: 'Ambient sound', sub: Ambient.kind !== 'off' ? 'Playing: ' + Ambient.label(Ambient.kind) : 'Rain, fireplace, ocean, brown noise' });
+  if (!inReader) items.push({ id: 'look', title: 'Appearance', sub: 'Themes, gradient, fonts, animations' });
+  return items;
+}
+const MORE_ICONS = {
+  autoscroll: '<svg viewBox="0 0 24 24"><path d="M12 3v18M7 8l5-5 5 5M7 16l5 5 5-5"/></svg>',
+  speed: '<svg viewBox="0 0 24 24"><path d="M4 12h16M13 5l7 7-7 7"/><path d="M4 7h5M4 17h5"/></svg>',
+  convcur: ICO.conv, convpick: ICO.conv
+};
+function openMore(where) {
+  if (UI.openMore) return UI.openMore(where);
+  $('#moreList').innerHTML = moreItems(where).map(it => menuItem(it.id, ICO[it.id] || MORE_ICONS[it.id], it.title, it.sub)).join('');
   openSheet('moreSheet');
+}
+async function moreAction(k) {
+  if (k === 'hl') openDrawer('hl');
+  else if (k === 'autoscroll') await AutoScroll.toggleCurrent();
+  else if (k === 'speed') SpeedReader.start();
+  else if (k === 'ai') AI.open();
+  else if (k === 'convcur') PdfConvert.ask(null);
+  else if (k === 'convpick') { const i = $('#pdfConvInput'); i.value = ''; i.click(); }
+  else if (k === 'amb') openSettings('audio');
+  else if (k === 'look') openSettings('look');
 }
 function bindMore() {
   $('#moreList').addEventListener('click', async e => {
@@ -5573,6 +5623,8 @@ function updateProgressUI() {
   else if (gp) label = 'Page ' + nf(gp.page) + ' of ' + nf(gp.total) + (info ? '  ·  ' + info.page + '/' + info.pages + ' in chapter' : '');
   else label = pctTxt + ' read';
   if (!scr.dataset.dragging) $('#scrubLabel').textContent = label + (info && info.pdf ? '' : '  ·  ' + pctTxt);
+  App.progress = { pct, label: label + (info && info.pdf ? '' : '  ·  ' + pctTxt), chapter: title, book: App.book.meta.title };
+  document.dispatchEvent(new CustomEvent('reader:progress'));
   $('#chapTitle').textContent = title;
   $('#runHead').textContent = title || App.book.meta.title;
   $('#runFoot').textContent = info ? (info.pdf ? 'Page ' + info.page + ' of ' + info.pages : (info.pages - info.page > 0 ? (info.pages - info.page) + (info.pages - info.page === 1 ? ' page' : ' pages') + ' left in chapter' : 'Last page in chapter')) : '';
@@ -5745,6 +5797,7 @@ async function renderLibrary() {
 let drawerTab = 'toc';
 function openDrawer(tab) {
   if (!App.book) return;
+  if (UI.openContents) return UI.openContents(tab);
   drawerTab = App.book.type === 'pdf' ? 'toc' : (tab || drawerTab);
   if (Sheets.current) Sheets.close(true);
   clearSelection(); renderDrawer();
@@ -5887,6 +5940,13 @@ async function setSetting(key, val) {
     updateProgressUI();
   }
 }
+function resetAppearance() {
+  const keep = { layout: S.layout };
+  const changedLayout = S.layout !== DEFAULTS.layout;
+  Object.assign(S, DEFAULTS, { grad: JSON.parse(JSON.stringify(DEFAULTS.grad)) }); saveSettings(); applyTheme(); applyTypography(); applyBodyClasses(); syncSettingsUI();
+  if (App.r) { if (changedLayout) { S.layout = keep.layout; setSetting('layout', DEFAULTS.layout); } else relayoutSoon(); }
+  toast('Appearance reset');
+}
 function bindSettings() {
   const body = $('#settingsBody');
   body.addEventListener('click', e => {
@@ -5899,13 +5959,7 @@ function bindSettings() {
     const sg = b.closest('[data-seg]'); if (sg) return setSetting(sg.dataset.seg, b.dataset.v);
     if (b.dataset.act === 'font-up') return setSetting('fontSize', Math.min(36, S.fontSize + 1));
     if (b.dataset.act === 'font-down') return setSetting('fontSize', Math.max(12, S.fontSize - 1));
-    if (b.dataset.act === 'reset') {
-      const keep = { layout: S.layout };
-      const changedLayout = S.layout !== DEFAULTS.layout;
-      Object.assign(S, DEFAULTS, { grad: JSON.parse(JSON.stringify(DEFAULTS.grad)) }); saveSettings(); applyTheme(); applyTypography(); applyBodyClasses(); syncSettingsUI();
-      if (App.r) { if (changedLayout) { S.layout = keep.layout; setSetting('layout', DEFAULTS.layout); } else relayoutSoon(); }
-      toast('Appearance reset');
-    }
+    if (b.dataset.act === 'reset') resetAppearance();
   });
   body.addEventListener('input', e => {
     const i = e.target;
@@ -6153,7 +6207,34 @@ Object.assign(window.__reader, {
   importFiles, openSample, openMore, openSettings, renderLibrary,
   coverHtml: genCover,
   editName: () => Greeter.open(),
-  libraryTitle: () => Greeter.title()
+  libraryTitle: () => Greeter.title(),
+  /* session 3: reader */
+  ui: UI,
+  closeBook, dictionaryButton, clearSelection, selectionInfo, selectionAction, moreItems, moreAction,
+  chapterTitle: chapterTitleFor,
+  keepChrome: () => clearTimeout(App.chromeTimer),
+  percentLabel(p) { const loc = locForPercent(p); return (App.book.type === 'pdf' ? 'Page ' + (loc.ch + 1) : chapterTitleFor(loc.ch)) + '  ·  ' + Math.round(p * 100) + '%'; },
+  async goToPercent(p) { await App.goTo(Object.assign(locForPercent(p), { keepChrome: true })); updateProgressUI(); },
+  themes: () => Object.entries(THEMES).map(([key, t]) => ({ key, label: t.label, bg: t.bg, fg: t.fg })),
+  fonts: () => Object.entries(FONTS).map(([key, f]) => ({ key, label: f.label, css: f.css })),
+  resetAppearance,
+  audioInfo() {
+    const st = TTS.state, m = TTS.model, cps = TTS.charsPerSec();
+    const p = m && m.len ? clamp(TTS.pos / m.len, 0, 1) : 0, total = m ? m.len / cps : 0, el = m ? TTS.pos / cps : 0;
+    const v = A.engine === 'edge' ? A.edgeVoice.replace(/Neural$/, '').split('-').pop() : ((TTS.voice() || {}).name || 'Device voice');
+    return { state: st, active: st !== 'idle', title: App.book ? App.book.meta.title : '', chapter: TTS.ch >= 0 ? chapterTitleFor(TTS.ch) : (st === 'loading' ? 'Preparing…' : ''),
+      pct: p, elapsed: fmtTime(el), remaining: fmtTime(total - el), total: fmtTime(total), rate: +A.rate, voice: v, engine: A.engine,
+      sleep: TTS.sleepEnd ? fmtTime((TTS.sleepEnd - Date.now()) / 1000) : TTS.sleepEoc ? 'End of chapter' : A.sleep ? A.sleep + ' min' : 'Off',
+      suspended: !!TTS.suspended && st !== 'idle', lyricsOpen: document.body.classList.contains('audio-lyrics-open'),
+      snippet: (() => { const c = m && TTS.chunk(); return c ? m.text.slice(c.s, c.e).trim() : ''; })() };
+  },
+  voicesInfo() {
+    const lang = bookLang();
+    return { lang, loading: !Voices.list.length && !Voices.gaveUp, automatic: (TTS.voice() || { name: 'system default' }).name, edge: EDGE_VOICES.slice(),
+      device: Voices.sorted(lang).filter(v => !isNoveltyVoice(v)).map(v => ({ uri: v.voiceURI, name: v.name, lang: v.lang, local: !!v.localService })) };
+  },
+  loadVoices: () => Voices.load(), voicesRetry: () => Voices.retry(),
+  setEdgeProxy, setEdgeVoice, setDeviceVoice, applyAudioPreset, resetAudio, previewVoice, runSpeechTest, speechReport, copyText
 });
 init();
 })();

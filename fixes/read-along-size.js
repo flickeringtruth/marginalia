@@ -6,7 +6,10 @@
    With localStorage "marginalia.ui" === "v2", the library layers that v2 replaces are skipped,
    so v2 replaces them instead of stacking on top (see docs/ui-audit.md). */
 const V2 = (() => { try { return localStorage.getItem('marginalia.ui') === 'v2'; } catch (e) { return false; } })();
-const REPLACED_BY_V2 = ['./library-ui.js', './magic-motion.js', './library-depth.js', './library-type.js'];
+const REPLACED_BY_V2 = [
+  './library-ui.js', './magic-motion.js', './library-depth.js', './library-type.js',   // session 2: library
+  './ui-polish.js', './ui-motion.js', './ui-feedback.js', './selection-touch.js'        // session 3: reader bars, sheets, selection menu
+];
 const LAYERS = [
   './ui-polish.js',
   './ui-motion.js',
@@ -55,6 +58,9 @@ for (const path of LAYERS) {
     try { localStorage.setItem(KEY, String(size)); } catch (e) { /* ignore */ }
     apply();
   }
+
+  // The v2 player (src/ui/reader/player.ts) uses the same two actions.
+  window.__marginaliaReadAlong = { smaller: () => set(current() - STEP), larger: () => set(current() + STEP) };
 
   // Swap the buttons for copies so the old listeners (which change the book text) are dropped.
   const smaller = $('#abTextSmaller'), larger = $('#abTextLarger');
