@@ -12,6 +12,7 @@ import './library-ui.js';
 import './magic-motion.js';
 import './library-depth.js';
 import './library-type.js';
+import '../build/src/tts-downloads.js';
 
 (() => {
   if (window.__marginaliaReadAlongSize) return;
