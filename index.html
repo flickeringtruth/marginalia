@@ -2701,6 +2701,7 @@ async function fetchEtymology(word, known) {
 }
 
 /* ---------- Tabbed dictionary: tap any word in a definition to open it in a new tab; search + Back per tab ---------- */
+const DICT_MAX_TABS = 24;
 const Dict = {
   tabs: [], active: 0, audio: null, pronunciationUtterance: null, organizing: false, initialized: false,
   ensureTabs() {
@@ -2708,7 +2709,7 @@ const Dict = {
     this.initialized = true;
     const saved = LS.get('reader.dict.tabs', null);
     if (Array.isArray(saved) && saved.length) {
-      this.tabs = saved.slice(0, 8).map(tab => {
+      this.tabs = saved.slice(0, DICT_MAX_TABS).map(tab => {
         const hist = tab && Array.isArray(tab.hist) ? tab.hist.filter(word => typeof word === 'string' && word.length <= 200).slice(-50) : [];
         return { hist, i: tab && Number.isInteger(tab.i) && tab.i >= 0 && tab.i < hist.length ? tab.i : hist.length - 1, locked: !!(tab && tab.locked) };
       });
@@ -2723,7 +2724,13 @@ const Dict = {
   },
   addTab(word, render = true) {
     this.ensureTabs();
-    if (this.tabs.length >= 8) { toast('Close an unlocked dictionary tab before adding another.'); return false; }
+    if (this.tabs.length >= DICT_MAX_TABS) {
+      // Full: recycle the oldest unlocked tab that is not the one being read, instead of refusing the lookup.
+      const old = this.tabs.findIndex((tb, k) => !tb.locked && k !== this.active);
+      if (old < 0) { toast('All dictionary tabs are locked. Unlock one to look up another word.'); return false; }
+      this.tabs.splice(old, 1);
+      if (old < this.active) this.active--;
+    }
     const w = word ? normalizeWord(word) : '';
     this.tabs.push({ hist: w ? [w] : [], i: w ? 0 : -1, locked: false });
     this.active = this.tabs.length - 1;
