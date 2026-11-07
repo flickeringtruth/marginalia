@@ -197,5 +197,14 @@ function escapeHtml(value) {
         "'": "&#39;"
     })[char] || char);
 }
-if (typeof document !== "undefined")
+// The v2 UI (localStorage "marginalia.ui" === "v2") has its own Discover screen (src/ui/discover.ts).
+function v2On() {
+    try {
+        return typeof localStorage !== "undefined" && localStorage.getItem("marginalia.ui") === "v2";
+    }
+    catch {
+        return false;
+    }
+}
+if (typeof document !== "undefined" && !v2On())
     new PublicDomainCatalog();

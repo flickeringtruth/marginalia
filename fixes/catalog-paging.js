@@ -4,6 +4,8 @@
    Paging follows the "next" link in Project Gutenberg's own search feed. */
 (() => {
   if (window.__marginaliaCatalogPaging) return;
+  // v2 replaces this layer with src/ui/discover.ts.
+  try { if (localStorage.getItem('marginalia.ui') === 'v2') return; } catch (e) { /* storage blocked: old UI */ }
   window.__marginaliaCatalogPaging = true;
 
   const ORIGIN = 'https://www.gutenberg.org';

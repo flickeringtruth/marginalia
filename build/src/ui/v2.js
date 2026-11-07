@@ -9,6 +9,7 @@ import { installComponents } from './components.js';
 import { portalRoot } from './overlay.js';
 import { mountLibrary } from './library.js';
 import { mountReader } from './reader/index.js';
+import { mountDiscover } from './discover.js';
 const KEY = 'marginalia.ui';
 const isOn = () => { try {
     return localStorage.getItem(KEY) === 'v2';
@@ -57,6 +58,7 @@ function start() {
     portalRoot();
     mountLibrary();
     mountReader();
+    mountDiscover();
 }
 if (document.readyState === 'loading')
     document.addEventListener('DOMContentLoaded', start);

@@ -76,3 +76,43 @@
 **Check on a real iPhone:** the selection menu opens below the selection with no iOS callout; the bars and mini player clear the notch and home indicator; audio keeps playing in the background and on the lock screen; the 3D curl page turn stays smooth.
 
 **Worker redeploy required: NO**
+
+## Session 4: Discover on v2 (2026-11-07, branch `ui-v2/04-discover`)
+
+**What changed**
+- `src/ui/discover.ts`: a full-screen v2 Discover with:
+  - debounced search, with stale requests dropped
+  - sorting (Popular, Title, Author)
+  - a list on phones and a grid from 640 px
+  - lazy covers in fixed 2:3 boxes, with a generated title/author card when there's no cover or it fails
+  - "Load more"
+  - loading skeletons, empty state, offline/error state with Try again
+  - a detail sheet with summary, subjects, Add to library, "Already in your library" + Open book, and Read on site
+  - Back (button or gesture) closes Discover; reopening keeps the query, results and scroll position
+- Filter kept from the old Discover: only books marked public domain in the USA that have an EPUB.
+- Add to library uses the existing import path (`__marginaliaSaveBook`). It now tries the Worker's `/book` route first, then the direct link, the same order as Read on site, because Gutenberg's download redirect has no CORS header and browsers block it.
+- Old layers: `build/book-catalog.js` and `fixes/catalog-paging.js` step aside when v2 is on. No files deleted.
+- Overlay manager fix: a reused panel kept its fade-out and reopened invisible. The leftover animation is now cleared on close and reopen.
+
+**API endpoints** (keyless, called from the browser)
+- `https://gutendex.com/books/?copyright=false&mime_type=application/epub+zip&search=…&sort=popular`
+  - Sort is server-side for Popular only (documented values: popular, ascending, descending). Title and Author are sorted in the browser over the books loaded so far, and the page says so.
+- Fallback when Gutendex fails or takes more than 8 s (remembered for 6 hours):
+  - `https://www.gutenberg.org/ebooks/search.opds/?query=…&sort_order=downloads` (the old Discover's source), plus `https://www.gutenberg.org/ebooks/<id>.opds` only when a book's details are opened (public-domain check, EPUB link, summary, subjects).
+  - Covers: `https://www.gutenberg.org/cache/epub/<id>/pg<id>.cover.medium.jpg`
+- Responses are cached in memory per session, and the same request is never sent twice in parallel.
+
+**Tested** (desktop Chrome):
+- `tsc`: zero errors; unit tests 9/9.
+- Overlap check: zero at 320/390/430/768/1280 px (list or grid, top and bottom, detail open).
+- At 390 px (fallback, Gutendex was down) and 1280 px (Gutendex): search, sort, open details, add to library, then open the imported book in the reader.
+- With v2 off: library, open book, page turns, read-aloud and the old Discover work as before.
+
+**Known issues**
+- Gutendex search was unreliable during testing (503s and timeouts of over 20 s), so the first search after it fails waits up to 8 s before the fallback. While it's down the browser console shows its failed request.
+- In fallback mode the list shows no language or download count until a book's details are opened.
+- Title/Author sort covers only the books loaded so far.
+
+**Check on a real iPhone:** covers loading on cellular (lazy, so only visible ones load); adding a book (needs the Worker URL saved in Settings › Audio) and then opening it.
+
+**Worker redeploy required: NO**

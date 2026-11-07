@@ -347,13 +347,27 @@ async function saveBook(b: { id: number; title: string; authors?: string[]; epub
   const R = reader();
   const existing = await R.listBooks();
   if (existing.some(m => m.gid === b.id && !m.temp)) { showToast('Already on this device'); return; }
-  let res: Response;
-  try { res = await fetch(b.epub); }
-  catch { throw new Error('The browser blocked the download. Use “Read on site”, or download the EPUB and use Import.'); }
-  if (!res.ok) throw new Error('Download failed (HTTP ' + res.status + ').');
-  const buf = await res.arrayBuffer();
-  const head = new Uint8Array(buf, 0, 2);
-  if (head[0] !== 0x50 || head[1] !== 0x4B) throw new Error('That download is not an EPUB file.');
+  // Same order as fixes/read-on-site.js: the Worker's /book route first (Gutenberg's own download
+  // redirect has no CORS header, so browsers usually block it), then the direct link.
+  const urls: string[] = [];
+  const proxy = R.edgeProxyUrl();
+  if (proxy) urls.push(proxy + '/book?id=' + Number(b.id));
+  urls.push(b.epub);
+  let buf: ArrayBuffer | null = null, status = 0;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) { status = res.status; continue; }
+      const data = await res.arrayBuffer();
+      const head = new Uint8Array(data, 0, 2);
+      if (head[0] === 0x50 && head[1] === 0x4B) { buf = data; break; }
+    } catch { /* blocked by the browser: try the next address */ }
+  }
+  if (!buf) {
+    throw new Error(proxy
+      ? 'Could not download this book' + (status ? ' (HTTP ' + status + ')' : '') + '. Check your connection and try again.'
+      : 'The browser blocked the download. Add your Cloudflare Worker address in Settings › Audio (it also downloads books), or use “Read on site”.');
+  }
   await R.storeBook({ id: 'g' + b.id, type: 'epub', name: b.title + '.epub', size: buf.byteLength, split: true,
     title: b.title, author: (b.authors || []).join(', '), added: Date.now(), opened: 0, gid: b.id }, buf);
   showToast('Saved to this device');
