@@ -3210,6 +3210,7 @@ function splitPhrases(text, s, e) {
   if (e > a) out.push([a, e]);
   return out;
 }
+const EDGE_GROUP_CHARS = 700;   // well under the Worker's 1,200-character request limit; short enough to start playing quickly
 async function buildSpeechModel(ch, mode) {
   const div = await App.book.getChapter(ch);
   const text = div.textContent, raw = [];
@@ -3228,10 +3229,18 @@ async function buildSpeechModel(ch, mode) {
   const chunks = [];
   paras.forEach((p, pi) => {
     const sents = splitSentences(text, p.s, p.e);
-    if (mode === 'edge') {
+    if (mode === 'edge' || mode === 'edge-sentence') {
+      // Edge (Microsoft) rate-limits by request count, so one request carries several sentences of a paragraph
+      // (up to EDGE_GROUP_CHARS). Storytelling cadence shapes each sentence on its own, so it keeps one sentence per request.
+      let cur = null;
       for (const [s, e] of sents) {
-        for (const [a, b] of splitLong(text, s, e, 1100)) chunks.push({ s: a, e: b, p: pi });
+        for (const [a, b] of splitLong(text, s, e, 1100)) {
+          if (mode === 'edge' && cur && b - cur[0] <= EDGE_GROUP_CHARS) cur[1] = b;
+          else { if (cur) chunks.push({ s: cur[0], e: cur[1], p: pi }); cur = [a, b]; }
+          if (mode === 'edge-sentence') { chunks.push({ s: cur[0], e: cur[1], p: pi }); cur = null; }
+        }
       }
+      if (cur) chunks.push({ s: cur[0], e: cur[1], p: pi });
       return;
     }
     if (mode === 'online') {
@@ -3410,7 +3419,7 @@ const TTS = {
   vkey() { if (this.online()) return 'edge:' + A.edgeVoice; const v = this.voice(); return v ? v.voiceURI : 'default'; },
   charsPerSec() { return (this.cps[this.vkey()] || 14.5) * clamp(A.rate, 0.1, 10); },
   online() { return A.engine === 'edge' && !this.onlineDown; },
-  mode() { return this.online() ? A.engine === 'edge' ? 'edge' : 'online' : A.cadence ? 'cadence' : 'plain'; },
+  mode() { return this.online() ? A.engine === 'edge' ? (A.cadence ? 'edge-sentence' : 'edge') : 'online' : A.cadence ? 'cadence' : 'plain'; },
   mk(ch) { return ch + '|' + this.mode(); },
   async getModel(ch) {
     const key = this.mk(ch);
@@ -4021,7 +4030,13 @@ const TTS = {
     const m = this.model; if (!m) return;
     const c = this.chunk(); if (!c) return;
     let unit;
-    if (A.hlMode === 'sentence') unit = [c.s, c.e];
+    if (A.hlMode === 'sentence') {
+      unit = [c.s, c.e];
+      if (this.mode() === 'edge') {   // a request holds several sentences; highlight only the one being read
+        if (!c.sents) c.sents = splitSentences(m.text, c.s, c.e);
+        unit = c.sents.find(x => this.pos >= x[0] && this.pos < x[1]) || unit;
+      }
+    }
     else {
       const w = wordRangeAt(m.text, this.pos);
       unit = w;
