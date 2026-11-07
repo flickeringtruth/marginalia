@@ -146,3 +146,29 @@
 - [ ] Search, Go to page, time left and Reading stats on your iPhone
 - [ ] Everything at phone and desktop sizes, light and dark, and with Reduce Motion on
 - [ ] Once happy: make v2 the default, then remove the old `fixes/` layers in a separate change
+
+## Bugfix pass (2026-11-07, branch `fix/bugfix-pass`, from `main` after PR #5)
+
+**Bugs: cause → fix → file**
+- 0 Dictionary: a hard cap of 8 tabs refused new lookups. The cap is now 24 and the oldest unlocked tab is recycled → `index.html` (`DICT_MAX_TABS`). I found no "10" anywhere, so I took "10 page number limit" to mean this cap.
+- 1 Edge TTS: the URL field was empty and nothing worked without it. Direct browser → Microsoft is not possible (the Worker's own header says Microsoft refuses web pages; my probe from a github.io origin was refused at the handshake and I stopped there). The deployed Worker is `marginalia.flickeringtruth.workers.dev` (GET 200 with the site's CORS headers). It is now the built-in `DEFAULT_TTS_ENDPOINT`; the address field moved to a collapsed **Advanced** section → `index.html`, `src/ui/reader/voices.ts`.
+- 2 Voices: one searchable list, "Online (Edge)" + "On this device", language, gender where known, per-row Preview, status line with Retry, iOS note (Apple voices can be downloaded; Siri voices are not available to websites). Picking a row sets engine + voice together and restarts the player once → `src/ui/reader/voices.ts`, `settings.ts`, engine `selectVoice`/`previewVoiceFor`/`edgeCheck`.
+- 3 Settings would not scroll on iPhone. Two causes: (a) a document-level `touchmove` guard cancelled every touch outside a hard-coded selector list that never included v2's scroll containers (proved on unmodified `main`: `defaultPrevented` true, scrollTop stays 0); (b) the engine sets `touch-action:none` on every range input, so a swipe starting on one of the many sliders never scrolled. Fixes → `index.html` (`inScrollable`), `src/ui/components.ts` (sliders `pan-y`; Sheet: vh→svh→dvh height, drag-to-dismiss only from handle/header or from the body at scrollTop 0, bottom padding = safe area + 32 px, lifts above the keyboard).
+- 4 Layout: audited library, Discover, reader and every sheet at 320 px: one scroller per screen, no fixed element inside a transformed ancestor, no inputs under 16 px, no horizontal scroll. Fixed: library scroll position lost after reading (`src/ui/library.ts`), a `100vw` (`index.html`). `#stage{touch-action:none}` is by design: the engine scrolls and turns pages in JS.
+- Visual: app theme (`src/ui/theme.ts`, palette in `index.html` `<head>` so nothing flashes; reading themes untouched), flux background (`src/ui/flux.ts`, simplex-noise 4.0.3, 18.7 KB, MIT, in `vendor/` and THIRD_PARTY_NOTICES). Measured: 30 fps, 0 fps when hidden, still frame under reduced motion, 32×54 canvas. All text tokens pass AA in both themes (computed).
+
+**Decisions I made**
+- Light-theme accent text is a darker orange (`#a94c2a`); the accent fill is unchanged. Text on the fill is dark (5.9:1), because white on `#d97757` is only 3.1:1.
+- Light "raised" level is `#f2f0e9` (not in your list). Reader bars and mini player keep following the reading theme; sheets, menus, library and Discover follow the app theme. App theme and flux only apply in v2 (still opt-in).
+- The Edge voice list stays bundled (names, gender); "loading" is the service check, so the list is never empty. No Worker change.
+- tsconfig `newLine: lf` so Windows builds stop rewriting every file in `build/`.
+
+**Verified** (Playwright, Chromium + WebKit at 320, 390, 430, iPad both ways, Pixel 7, 1280, 1440, 16 of 16 combinations green; **Firefox could not be launched on this machine (`spawn UNKNOWN`), so it is untested**): Settings scrolled to its last item (real touch in Chromium; WebKit has no touch API, so there the guard is tested with a synthetic `touchmove` plus scrollTop), overlap check zero, no horizontal scroll, dark/light with no flash, flux on/off, library scroll kept. Reader controls 76/76 (393 px) and 78/78 (1280 px); Settings controls 64/64 at both. Edge on a clean profile: Preview returned 200 `audio/mpeg`, a chapter played. `tsc` zero errors, unit tests 9/9.
+
+**Known / not done**
+- Engine tool screens (dictionary, AI chat, speed reader) still follow the reading theme. `api.dictionaryapi.dev` logs a CORS error and the lookup falls back to Wiktionary. Light accent fill on white is 2.96:1 (non-text).
+- The old controls check leaves the app via `history.back()` in a fresh tab (same on `main`); tests pad the history.
+
+**Check on a real iPhone:** Settings scroll, including a swipe that starts on a slider · Edge voices with no setup · Apple voice list and the iOS note · Safari's floating toolbar over the last Settings row · flux battery and smoothness on a long scroll.
+
+**Worker redeploy required: NO.** The Worker is unchanged and already live.

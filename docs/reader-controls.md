@@ -4,7 +4,13 @@ Every control the reader offers, in `index.html` and the `fixes/` layers, and wh
 
 Columns: **v2 control** is what the user taps in v2; **handler** is the engine function it calls (through `window.__reader`); **verified** is whether it was clicked in the browser at 390 px and 1280 px.
 
-**How it was verified (2026-11-07, desktop Chrome):**
+**Re-verified in the bugfix pass (2026-11-07, Playwright, Chromium 393 px and 1280 px, real Worker):**
+- `dev/reader-controls-check.js`: every control clicked again, 76 of 76 yes at 393 px (Pixel/iPhone size) and 78 of 78 at 1280 px.
+- Settings (both tabs): every segmented option, toggle, slider and chip clicked one by one, 64 of 64 changed state at 393 px and at 1280 px (the "New interface" switch is excluded because it reloads the page).
+- The new voice picker was clicked end to end on a clean profile with no saved address: search by name and gender, pick an Edge voice, Preview (POST to the built-in Worker answered 200 `audio/mpeg`), play a chapter with Edge, switch to a device voice while playing, "Show voices in other languages", Advanced > Save with a bad address (status shows the failure and Retry), Retry, Use built-in, choice remembered after a reload.
+- The test tab needed a padded history: some `closeAll()` step of the old check calls `history.back()` past the first entry and leaves the app (it does the same on the unmodified `main`; not investigated).
+
+**How it was first verified (session 3, desktop Chrome):**
 - `dev/reader-controls-check.js` clicks each control and checks that its handler changed something (page, setting, storage, player state, or a sheet/menu opening): 78 checks at 390 px, 80 at 1280 px (Bookmarks and Dictionary only show in the top bar from 480 px).
 - Appearance and Audio settings were checked separately, one control at a time (56 checks).
 - Auto scroll switches the book to Scroll mode, which needs animation frames. It was confirmed by hand at both widths with the browser in the foreground.
