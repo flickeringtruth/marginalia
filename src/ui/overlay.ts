@@ -37,8 +37,23 @@ export function portalRoot(): HTMLElement {
     document.body.appendChild(portal);
     document.addEventListener('keydown', onKey, true);
     window.addEventListener('popstate', onPop);
+    trackKeyboard();
   }
   return portal;
+}
+
+/* The on-screen keyboard covers the bottom of the layout viewport on iOS (and on Android when the
+   page is not resized). --v2-kb is its height, so bottom sheets lift above it instead of hiding fields. */
+function trackKeyboard(): void {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const update = () => {
+    const kb = Math.round(window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--v2-kb', kb > 80 ? kb + 'px' : '0px');
+  };
+  vv.addEventListener('resize', update);
+  vv.addEventListener('scroll', update);
+  update();
 }
 
 /** Elements made inert while a modal layer is open (the app screens behind it). */
