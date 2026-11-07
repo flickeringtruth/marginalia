@@ -37,7 +37,7 @@ interface ReaderAudioInfo {
   pct: number; elapsed: string; remaining: string; total: string; rate: number; voice: string; engine: string;
   sleep: string; suspended: boolean; lyricsOpen: boolean; snippet: string;
 }
-interface ReaderVoicesInfo { lang: string; loading: boolean; automatic: string; edge: string[]; device: { uri: string; name: string; lang: string; local: boolean }[] }
+interface ReaderVoicesInfo { lang: string; loading: boolean; automatic: string; edge: string[]; device: { uri: string; name: string; lang: string; local: boolean }[]; deviceTotal: number; ios: boolean }
 interface ReaderSelectionInfo {
   active: boolean; isHighlight: boolean; color: string | null; colors: Record<string, string>; canShare: boolean; canSpeak: boolean;
   rects: { left: number; top: number; right: number; bottom: number; width: number; height: number }[];
@@ -125,6 +125,14 @@ interface ReaderApi {
   applyAudioPreset: (preset: string) => void;
   resetAudio: () => void;
   previewVoice: () => void;
+  /** Sets engine + voice together, locks it and restarts playback once. kind 'edge' (voice name) or 'device' (voiceURI, '' = automatic). */
+  selectVoice: (kind: 'edge' | 'device', id: string) => void;
+  /** Plays a sample of one specific voice. Resolves when it ends; rejects with a readable message. */
+  previewVoiceFor: (kind: 'edge' | 'device', id: string) => Promise<void>;
+  stopPreview: () => void;
+  edgeCheck: () => Promise<{ ok: boolean; reason: string }>;
+  edgeProxyOverride: () => string;
+  defaultEdgeProxy: string;
   runSpeechTest: () => void;
   speechReport: () => string;
   copyText: (text: string) => Promise<void>;
