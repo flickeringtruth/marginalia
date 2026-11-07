@@ -116,3 +116,33 @@
 **Check on a real iPhone:** covers loading on cellular (lazy, so only visible ones load); adding a book (needs the Worker URL saved in Settings › Audio) and then opening it.
 
 **Worker redeploy required: NO**
+
+## Session 5: Reader features (2026-11-07, branch `ui-v2/05-features`)
+
+**What changed** (v2 only; with `marginalia.ui` unset the app is unchanged)
+- Search in book: the whole book, ignoring case and accents, results grouped by chapter with snippets. Tapping a result jumps there and highlights it; a match bar steps previous/next. Runs in short slices so the page stays responsive (War and Peace: about 0.5 s the first time, about 40 ms after that).
+- Time left in chapter and book, from your measured reading speed (idle gaps over 2 min and jumps are ignored; 250 wpm until there are 3 measured minutes), or from the read-aloud speed while it plays. Shown in the bottom bar and in Go to page.
+- Go to page: "Page X of Y at current settings", accepts a page or a percentage like 40%, validates input, and waits for the page-turn animation to finish before jumping.
+- Reading stats (More, in the reader or the library): today, this week, streak, books finished, average speed, a 30-day chart, and Reset stats with confirmation. Stored in `localStorage` (`marginalia.stats.v1`); no IndexedDB change.
+- Engine: one small method, `ttsCharsPerSec()`. Docs: `docs/reader-controls.md` §8, `docs/reader-api.md`.
+
+**Tested** (desktop Chrome): `tsc` zero errors; overlap zero at 320/390/430/768/1280 px with each new sheet open and with the match bar; search, Go to page at two font sizes and during a page turn, stats with simulated time; v2 off: library, open book, page turns, read-aloud, old Discover. Console clean both ways.
+
+**Known issues**
+- Page numbers are an estimate: they can shift once per settings change, after the first full chapter is measured.
+- The match bar covers about one line of text while it is open.
+- Words per minute assumes about 6 characters per word. Stats are per device and only count time with the book open and in use.
+- Search is not available for PDFs.
+
+**Check on a real iPhone:** search speed on a long book; time-left accuracy after reading 10+ minutes; stats still there after closing and reopening the app (and after iOS clears idle site data).
+
+**Worker redeploy required: NO**
+
+**Ready for owner review** (before v2 becomes the default and the old `fixes/` layers are removed)
+- [ ] Library: import, open, edit, delete, sort and filter books
+- [ ] Reader: page turns (curl and fade), bars, Contents, bookmarks, notes, highlights, Appearance settings
+- [ ] Read-aloud: Apple voices and Edge voices, mini player, sleep timer, read-along, downloads
+- [ ] Discover: search, details, add to library, open the added book
+- [ ] Search, Go to page, time left and Reading stats on your iPhone
+- [ ] Everything at phone and desktop sizes, light and dark, and with Reduce Motion on
+- [ ] Once happy: make v2 the default, then remove the old `fixes/` layers in a separate change

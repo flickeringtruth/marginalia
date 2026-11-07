@@ -48,6 +48,7 @@ body.chrome-on #v2-reader .rbar{transition:opacity var(--v2-d-base) var(--v2-eas
 #v2-reader .scrub .lbl{font:500 var(--v2-t-xs)/1.2 var(--v2-sans);color:var(--v2-muted);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
 /* narrow phones: Bookmarks and Dictionary move into More, the title goes to the bottom label */
 @media (max-width:479px){#v2-reader .wide-only{display:none}}
+@media (max-width:599px){#v2-reader .wider-only{display:none}}
 @media (max-width:359px){#v2-reader .rtitle{visibility:hidden}}
 @media (prefers-reduced-motion:reduce){#v2-reader .rbar{transition:none!important;transform:none!important}}
 `;
@@ -58,7 +59,8 @@ export interface ReaderChrome {
   setAudioOn: (on: boolean) => void;
 }
 
-export function mountChrome(actions: { contents: () => void; bookmarks: () => void; settings: () => void; more: () => void }): ReaderChrome {
+export function mountChrome(actions: { contents: () => void; bookmarks: () => void; settings: () => void; more: () => void;
+  search?: () => void; label?: () => string | null }): ReaderChrome {
   addStyle('v2-reader-chrome', CSS);
   const R = reader();
   const keep = (fn: () => void) => () => { R.keepChrome(); fn(); };
@@ -69,6 +71,7 @@ export function mountChrome(actions: { contents: () => void; bookmarks: () => vo
     IconButton({ label: 'Back to library', icon: 'chevron-left', onClick: () => R.closeBook() }),
     IconButton({ label: 'Contents', icon: 'contents', onClick: keep(actions.contents) }),
     title,
+    actions.search ? IconButton({ label: 'Search in book', icon: 'search', onClick: keep(actions.search), attrs: { class: 'v2-ibtn wider-only' } }) : null,
     IconButton({ label: 'Bookmarks and notes', icon: 'bookmark', onClick: keep(actions.bookmarks), attrs: { class: 'v2-ibtn wide-only' } }),
     audioBtn,
     IconButton({ label: 'Dictionary', icon: 'dictionary', onClick: keep(() => R.dictionaryButton()), attrs: { class: 'v2-ibtn wide-only' } }),
@@ -93,7 +96,7 @@ export function mountChrome(actions: { contents: () => void; bookmarks: () => vo
     const p = R.App.progress, book = R.App.book;
     title.firstElementChild!.textContent = book ? book.meta.title || '' : '';
     (title.lastElementChild as HTMLElement).textContent = p ? p.chapter : '';
-    if (p && !dragging) { scrub.value = String(Math.round(p.pct * 1000)); rangeFill(scrub); label.textContent = p.label; }
+    if (p && !dragging) { scrub.value = String(Math.round(p.pct * 1000)); rangeFill(scrub); label.textContent = (actions.label && actions.label()) || p.label; }
   };
   const syncScreen = (screen: string) => { root.hidden = screen !== 'reader'; if (!root.hidden) syncProgress(); };
   document.addEventListener('reader:progress', syncProgress);

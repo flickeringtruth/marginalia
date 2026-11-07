@@ -1,20 +1,37 @@
-/* v2 More sheet (library and reader). Replaces the engine's #moreSheet; the rows come from the
-   engine's moreItems() and run through moreAction(), so the list stays in one place.
-   In the reader it also offers Bookmarks and Dictionary, which narrow phones hide from the top bar. */
+/* v2 More sheet (library and reader). Replaces the engine's #moreSheet; the engine rows come from
+   moreItems() and run through moreAction(), so that list stays in one place.
+   v2 adds: Bookmarks and Dictionary (hidden from the top bar on narrow phones), Search in book,
+   Go to page and Reading stats (session 5). */
 
 import { reader } from '../dom.js';
 import { IconName } from '../icons.js';
 import { ListItem, Sheet } from '../components.js';
 
-const ICONS: Record<string, IconName> = { hl: 'edit', autoscroll: 'scroll', speed: 'zap', ai: 'sparkle', convcur: 'file', convpick: 'file', amb: 'wave', look: 'type', bm: 'bookmark', dict: 'dictionary' };
+const ICONS: Record<string, IconName> = { hl: 'edit', autoscroll: 'scroll', speed: 'zap', ai: 'sparkle', convcur: 'file', convpick: 'file', amb: 'wave', look: 'type',
+  bm: 'bookmark', dict: 'dictionary', search: 'search', goto: 'location', stats: 'chart' };
 
-export function openMore(where: 'library' | 'reader', open: { contents: (tab?: string) => void; settings: (tab: 'look' | 'audio', group?: string) => void }): void {
+export interface MoreActions {
+  contents: (tab?: string) => void;
+  settings: (tab: 'look' | 'audio', group?: string) => void;
+  search: () => void;
+  goTo: () => void;
+  stats: () => void;
+}
+
+export function openMore(where: 'library' | 'reader', open: MoreActions): void {
   const R = reader();
   const items = R.moreItems(where).slice();
+  const text = !!R.App.book && R.App.book.type !== 'pdf';
   if (where === 'reader' && R.App.book) {
-    items.unshift({ id: 'bm', title: 'Bookmarks and notes', sub: 'Your places and thoughts in this book' });
-    if (R.App.book.type !== 'pdf') items.splice(1, 0, { id: 'dict', title: 'Dictionary', sub: 'Look up a word' });
+    const extra = [
+      text ? { id: 'search', title: 'Search in book', sub: 'Find words anywhere in this book' } : null,
+      { id: 'goto', title: 'Go to page', sub: 'Jump to a page or percentage, see time left' },
+      { id: 'bm', title: 'Bookmarks and notes', sub: 'Your places and thoughts in this book' },
+      text ? { id: 'dict', title: 'Dictionary', sub: 'Look up a word' } : null
+    ].filter((x): x is { id: string; title: string; sub: string } => !!x);
+    items.unshift(...extra);
   }
+  items.push({ id: 'stats', title: 'Reading stats', sub: 'Time read, streak, books finished, speed' });
   const s = Sheet({
     title: 'More',
     content: items.map(it => ListItem({ title: it.title, subtitle: it.sub, icon: ICONS[it.id] || 'more', onClick: () => {
@@ -26,6 +43,9 @@ export function openMore(where: 'library' | 'reader', open: { contents: (tab?: s
         else if (it.id === 'hl') open.contents('hl');
         else if (it.id === 'amb') open.settings('audio', 'Ambient sound');
         else if (it.id === 'look') open.settings('look');
+        else if (it.id === 'search') open.search();
+        else if (it.id === 'goto') open.goTo();
+        else if (it.id === 'stats') open.stats();
         else void R.moreAction(it.id);
       }, 60);
     } }))
