@@ -13,6 +13,17 @@
 <!-- v2 UI switch (localStorage "marginalia.ui" = "v2"): marks <html> before first paint so the old library never flashes. No effect when unset. -->
 <script>try{if(localStorage.getItem('marginalia.ui')==='v2')document.documentElement.classList.add('ui-v2')}catch(e){}</script>
 <style>html.ui-v2 #library{display:none!important}</style>
+<!-- App theme (v2 chrome). Set before first paint so the screen never flashes; the reading-page themes are separate.
+     Contrast (WCAG AA, every text token on bg, surface and raised): text 11.8-18.4:1; muted 4.8-6.4:1 dark, 4.8-5.5:1 light;
+     --app-accent-text is the accent tuned for small text (4.9-5.9:1 light, 5.1-6.9:1 dark); --app-on-accent on the accent fill is 5.9:1. -->
+<script>try{var __t=localStorage.getItem('marginalia.appTheme');document.documentElement.setAttribute('data-app-theme',__t==='light'?'light':'dark');if(localStorage.getItem('marginalia.flux')==='0')document.documentElement.setAttribute('data-flux','off')}catch(e){document.documentElement.setAttribute('data-app-theme','dark')}</script>
+<style id="app-theme-tokens">
+:root,:root[data-app-theme="dark"]{color-scheme:dark;--app-bg:#1f1e1d;--app-surface:#2b2a28;--app-raised:#353431;--app-border:#3d3c39;--app-text:#faf9f5;--app-muted:#a3a19b;
+  --app-accent:#d97757;--app-accent-text:#e8906f;--app-on-accent:#141413;--app-danger:#ff7a70;--app-ok:#5fbf7f;--app-scrim:rgba(0,0,0,.6);--app-shadow:rgba(0,0,0,.55)}
+:root[data-app-theme="light"]{color-scheme:light;--app-bg:#faf9f5;--app-surface:#ffffff;--app-raised:#f2f0e9;--app-border:#e5e3dc;--app-text:#141413;--app-muted:#6b6964;
+  --app-accent:#d97757;--app-accent-text:#a94c2a;--app-on-accent:#141413;--app-danger:#c62828;--app-ok:#1e7a3c;--app-scrim:rgba(20,20,19,.4);--app-shadow:rgba(20,20,19,.22)}
+html.ui-v2,html.ui-v2 body{background-color:var(--app-bg);background-image:none}
+</style>
 <style>
 /* =====================================================================
    1. DESIGN TOKENS (theme variables are rewritten by applyTheme())
@@ -451,7 +462,7 @@ body.audio-popup-open #abStop{display:none}
 body.audio-lyrics-open .ab-popup-backdrop,body.audio-lyrics-open .ab-full,body.audio-lyrics-open #abMini{opacity:0;pointer-events:none}
 .ab-lyrics{position:absolute;inset:0;z-index:2;display:none;pointer-events:auto;background:var(--bg);color:var(--fg);padding:calc(var(--sat) + 10px) calc(var(--sar) + 20px) calc(var(--sab) + 18px) calc(var(--sal) + 20px)}
 body.audio-lyrics-open .ab-lyrics{display:flex;flex-direction:column}
-body.lyrics-fullscreen-fallback .ab-lyrics{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;z-index:1000}
+body.lyrics-fullscreen-fallback .ab-lyrics{position:fixed;inset:0;width:100%;height:100vh;height:100dvh;z-index:1000}
 .ab-lyrics-head,.ab-lyrics-list,.ab-lyrics-foot{width:min(760px,100%);margin-left:auto;margin-right:auto}
 .ab-lyrics-head{display:flex;align-items:center;gap:12px;min-height:48px;flex:none}
 .ab-lyrics-fullscreen{width:44px;height:44px;border-radius:22px;background:var(--card);display:flex;align-items:center;justify-content:center;flex:none}
@@ -2701,6 +2712,7 @@ async function fetchEtymology(word, known) {
 }
 
 /* ---------- Tabbed dictionary: tap any word in a definition to open it in a new tab; search + Back per tab ---------- */
+const DICT_MAX_TABS = 24;
 const Dict = {
   tabs: [], active: 0, audio: null, pronunciationUtterance: null, organizing: false, initialized: false,
   ensureTabs() {
@@ -2708,7 +2720,7 @@ const Dict = {
     this.initialized = true;
     const saved = LS.get('reader.dict.tabs', null);
     if (Array.isArray(saved) && saved.length) {
-      this.tabs = saved.slice(0, 8).map(tab => {
+      this.tabs = saved.slice(0, DICT_MAX_TABS).map(tab => {
         const hist = tab && Array.isArray(tab.hist) ? tab.hist.filter(word => typeof word === 'string' && word.length <= 200).slice(-50) : [];
         return { hist, i: tab && Number.isInteger(tab.i) && tab.i >= 0 && tab.i < hist.length ? tab.i : hist.length - 1, locked: !!(tab && tab.locked) };
       });
@@ -2723,7 +2735,13 @@ const Dict = {
   },
   addTab(word, render = true) {
     this.ensureTabs();
-    if (this.tabs.length >= 8) { toast('Close an unlocked dictionary tab before adding another.'); return false; }
+    if (this.tabs.length >= DICT_MAX_TABS) {
+      // Full: recycle the oldest unlocked tab that is not the one being read, instead of refusing the lookup.
+      const old = this.tabs.findIndex((tb, k) => !tb.locked && k !== this.active);
+      if (old < 0) { toast('All dictionary tabs are locked. Unlock one to look up another word.'); return false; }
+      this.tabs.splice(old, 1);
+      if (old < this.active) this.active--;
+    }
     const w = word ? normalizeWord(word) : '';
     this.tabs.push({ hist: w ? [w] : [], i: w ? 0 : -1, locked: false });
     this.active = this.tabs.length - 1;
@@ -3068,7 +3086,12 @@ function retryAfterMs(value) {
   const t = Date.parse(value);
   return Number.isFinite(t) ? Math.max(0, t - Date.now()) : 0;
 }
-function edgeProxyUrl() { try { return (A.edgeProxy || localStorage.getItem('marginalia.voiceProxy') || '').trim().replace(/\/+$/, ''); } catch (e) { return (A.edgeProxy || '').trim().replace(/\/+$/, ''); } }
+/* The deployed Worker (worker.js + edge-proxy-worker.js) that proxies Microsoft's Edge read-aloud service.
+   This is the single built-in default, so Edge voices work with no setup. A user-entered address
+   (Settings › Audio › Advanced) overrides it; clearing that field goes back to this one. */
+const DEFAULT_TTS_ENDPOINT = 'https://marginalia.flickeringtruth.workers.dev';
+function edgeProxyOverride() { try { return (A.edgeProxy || localStorage.getItem('marginalia.voiceProxy') || '').trim().replace(/\/+$/, ''); } catch (e) { return (A.edgeProxy || '').trim().replace(/\/+$/, ''); } }
+function edgeProxyUrl() { return edgeProxyOverride() || DEFAULT_TTS_ENDPOINT; }
 const MALE_RE = /\b(male|man|google uk english male|microsoft david|daniel|alex|fred|aaron|arthur|rishi|oliver|thomas|gordon|lee|ralph|reed|rocko|eddy|grandpa|guy|davis|ryan|christopher|eric|brian|andrew|roger|william|tony|mark|david|george|james|xander|frank|maarten|arjan|jacques|paul|nathan|evan|jorge|diego|luca|hans|markus|stefan|tom|liam|noah|matthew|steffan|connor|william)\b/;
 /* Novelty voices are matched by display name only. Never test voiceURI here: Apple's normal
    iPhone voices have IDs like com.apple.voice.compact.en-US.Samantha, and "compact",
@@ -3601,8 +3624,8 @@ const TTS = {
     if (/[.。]["'”’)]?\s*$/.test(sentence)) return { rate: 0.98, pitch: basePitch };
     return { rate: 1, pitch: basePitch };
   },
-  async edgeAudio(text, signal, cacheBookId = App.book && App.book.id, prosody = { rate: 1, pitch: 1 }) {
-    const voice = A.edgeVoice;
+  async edgeAudio(text, signal, cacheBookId = App.book && App.book.id, prosody = { rate: 1, pitch: 1 }, voiceOverride = '') {
+    const voice = voiceOverride || A.edgeVoice;
     // Downloaded chapters (fixes → build/src/tts-downloads.js) come first, so they play offline.
     const downloads = window.__marginaliaTTSDownloads;
     if (downloads && cacheBookId) {
@@ -4392,11 +4415,11 @@ function buildAudioSettings() {
   <div class="grp"><h3>Engine</h3>
     ${aseg('engine', [['device', 'Device voices'], ['edge', 'EdgeTTS']])}
     <div id="edgeBox" class="hidden" style="margin-top:10px">
-      <div class="key-row"><input id="edgeProxy" type="url" placeholder="https://your-worker.workers.dev" autocomplete="off" autocapitalize="off" aria-label="EdgeTTS Worker URL"><button class="small-btn" id="edgeSave">Save</button></div>
+      <div class="key-row"><input id="edgeProxy" type="url" placeholder="Optional: custom voice service address" autocomplete="off" autocapitalize="off" aria-label="EdgeTTS Worker URL"><button class="small-btn" id="edgeSave">Save</button></div>
       <input id="edgeVoiceSearch" type="search" placeholder="Search voices or languages" aria-label="Search EdgeTTS voices" style="box-sizing:border-box;width:100%;height:44px;margin-top:8px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px">
       <div class="row" style="margin-top:6px"><span>Voice</span><select id="edgeVoice" aria-label="EdgeTTS voice" style="flex:1;min-width:0;height:44px;border-radius:10px;border:.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:14px;padding:0 10px"></select><button class="small-btn" id="edgePreview">Preview</button></div>
       <div class="row" style="margin-top:6px;justify-content:flex-end"><button class="small-btn" id="edgeVoicePrev" aria-label="Previous matching EdgeTTS voice">Previous</button><button class="small-btn" id="edgeVoiceNext" aria-label="Next matching EdgeTTS voice">Next</button></div>
-      <p class="hint">Enter the Cloudflare Worker address used by the Edge voice test. It is saved on this device.</p>
+      <p class="hint">Edge voices work without any setup. Only enter an address here to use your own Cloudflare Worker instead; leave it empty for the built-in one.</p>
       <p class="hint">EdgeTTS uses Microsoft’s unofficial Edge read-aloud service, not a public API. Microsoft can still throttle or block it at any time. Caching and downloads cut down how often it is asked, but they can’t prevent that. If it refuses 3 times in a row, reading continues with your device voice.</p>
       <div id="ttsDownloads"></div>
     </div>
@@ -4502,7 +4525,7 @@ function syncAudioSettingsUI() {
   $$('[data-atoggle]', body).forEach(b => b.querySelector('.switch').classList.toggle('on', !!A[b.dataset.atoggle]));
   $('#volHint').classList.toggle('hidden', A.volume <= 100);
   $('#edgeBox').classList.toggle('hidden', A.engine !== 'edge');
-  const edgeProxy = $('#edgeProxy'); if (edgeProxy && document.activeElement !== edgeProxy) edgeProxy.value = edgeProxyUrl();
+  const edgeProxy = $('#edgeProxy'); if (edgeProxy && document.activeElement !== edgeProxy) edgeProxy.value = edgeProxyOverride();
   fillEdgeVoiceSelect($('#edgeVoiceSearch')?.value || '');
   $$('[data-amb] button', body).forEach(b => b.classList.toggle('on', Ambient.kind === b.dataset.v));
   const av = $('#ambVol'); if (av) { av.value = A.ambVol; av.style.setProperty('--p', (A.ambVol * 100) + '%'); }
@@ -4519,7 +4542,7 @@ function setAudio(key, val) {
   if (key === 'hlMode' || key === 'trail') { TTS.trail = []; TTS.unit = null; TTS.word = null; TTS.sylTimers.forEach(clearTimeout); if (TTS.model) { TTS.updateUnit('mode'); TTS.renderHL(); } }
   if (key === 'hlColor') applyAudioColor();
   if (key === 'voiceLocked') TTS.restartSoon();
-  if (key === 'engine' || key === 'cadence') { TTS.onlineDown = false; if (key === 'engine' && val === 'edge' && !edgeProxyUrl()) toast('Enter your EdgeTTS Worker URL below'); TTS.restartSoon(); }
+  if (key === 'engine' || key === 'cadence') { TTS.onlineDown = false; TTS.restartSoon(); }
   if (key === 'sleep' && TTS.active()) TTS.armSleep();
   if ((key === 'autoScroll' || key === 'autoNext') && val) { TTS.suspended = false; AudioUI.chip(false); TTS.follow(false); }
   syncAudioSettingsUI(); AudioUI.sync();
@@ -4562,7 +4585,7 @@ function setEdgeProxy(raw) {
   if (proxy && !/^https:\/\//i.test(proxy)) { toast('Enter a secure https:// Worker URL'); return false; }
   A.edgeProxy = proxy; saveAudioSettings();
   try { if (proxy) localStorage.setItem('marginalia.voiceProxy', proxy); else localStorage.removeItem('marginalia.voiceProxy'); } catch (e) { /* ignore */ }
-  TTS.onlineDown = false; TTS.models.clear(); syncAudioSettingsUI(); TTS.restartSoon(); toast(proxy ? 'EdgeTTS Worker URL saved' : 'EdgeTTS Worker URL cleared');
+  TTS.onlineDown = false; TTS.models.clear(); syncAudioSettingsUI(); TTS.restartSoon(); toast(proxy ? 'Custom voice service address saved' : 'Using the built-in voice service');
   return true;
 }
 function applyAudioPreset(v) {
@@ -4631,7 +4654,6 @@ function previewVoice() {
   if (TTS.state === 'playing' || TTS.state === 'loading') TTS.pause();
   const sample = /^nl/i.test(bookLang()) ? 'Zo klinkt deze stem bij het voorlezen. Hoor je het verschil?' : 'This is how this voice sounds when reading your book. Can you hear the difference?';
   if (A.engine === 'edge') {
-    if (!edgeProxyUrl()) { toast('Enter your EdgeTTS Worker URL below'); return; }
     TTS.edgeAudio(sample, undefined, null, { rate: 1, pitch: clamp(A.pitch, 0.5, 1.6) }).then(result => {
       const blob = result.blob;
       const url = URL.createObjectURL(blob), a = new window.Audio(url);
@@ -4651,6 +4673,61 @@ function previewVoice() {
     u.rate = A.rate; u.pitch = A.pitch; u.volume = clamp(A.volume / 100, 0, 1);
     speechSynthesis.speak(u); TTS.unlocked = true;
   } catch (e) { toast('Preview failed'); }
+}
+/* ---- One voice picker (v2): pick, preview and check helpers ---- */
+/* Picking a voice sets the engine and the voice together, locks it, and restarts playback once. */
+function selectVoice(kind, id) {
+  if (kind === 'edge') { A.engine = 'edge'; A.edgeVoice = id; }
+  else { A.engine = 'device'; A.voiceURI = id || ''; A.preset = id ? 'custom' : 'auto'; TTS.forceDefault = false; TTS.forceLocal = false; TTS.startFails = 0; }
+  A.voiceLocked = true;
+  saveAudioSettings(); TTS.onlineDown = false; TTS.models.clear(); TTS.edge429 = 0;
+  TTS.restartSoon(); fillVoiceSelect(); syncAudioSettingsUI(); AudioUI.sync();
+}
+const PREVIEW_SAMPLES = { en: 'This is how this voice sounds when reading your book.', nl: 'Zo klinkt deze stem bij het voorlezen.', de: 'So klingt diese Stimme beim Vorlesen.', fr: 'Voici comment cette voix lit votre livre.',
+  es: 'Así suena esta voz al leer tu libro.', it: 'Ecco come suona questa voce mentre legge il tuo libro.', pt: 'É assim que esta voz soa ao ler o seu livro.', ja: 'この声で本を読み上げます。', ko: '이 목소리로 책을 읽어 드립니다.',
+  zh: '这是这个声音朗读你的书的效果。', ar: 'هكذا يبدو هذا الصوت عند قراءة كتابك.', hi: 'यह आवाज़ आपकी किताब को ऐसे पढ़ती है।', sv: 'Så här låter den här rösten när den läser din bok.',
+  da: 'Sådan lyder denne stemme, når den læser din bog.', pl: 'Tak brzmi ten głos podczas czytania twojej książki.', ru: 'Так звучит этот голос при чтении вашей книги.' };
+const previewSample = lang => PREVIEW_SAMPLES[String(lang || 'en').slice(0, 2).toLowerCase()] || PREVIEW_SAMPLES.en;
+let previewStop = null;
+function stopPreview() { if (previewStop) { const f = previewStop; previewStop = null; try { f(); } catch (e) { /* ignore */ } } }
+/* Plays a short sample of one specific voice (not necessarily the selected one). Resolves when it ends. */
+function previewVoiceFor(kind, id) {
+  if (TTS.state === 'playing' || TTS.state === 'loading') TTS.pause();
+  stopPreview();
+  if (kind === 'edge') {
+    const controller = new AbortController();
+    return TTS.edgeAudio(previewSample(id), controller.signal, null, { rate: 1, pitch: clamp(A.pitch, 0.5, 1.6) }, id).then(result => new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(result.blob), a = new window.Audio(url);
+      a.volume = clamp(A.volume / 100, 0, 1);
+      const end = err => { previewStop = null; URL.revokeObjectURL(url); err ? reject(err) : resolve(); };
+      previewStop = () => { a.pause(); end(); };
+      a.onended = () => end(); a.onerror = () => end(new Error('The sample could not be played'));
+      const p = a.play(); if (p && p.catch) p.catch(() => end(new Error('The browser blocked audio playback')));
+    }));
+  }
+  if (!TTS_OK) return Promise.reject(new Error('This browser has no speech synthesis'));
+  return new Promise((resolve, reject) => {
+    try {
+      speechSynthesis.cancel();
+      const v = (speechSynthesis.getVoices() || []).find(x => x.voiceURI === id) || null;
+      const u = new SpeechSynthesisUtterance(previewSample(v ? v.lang : bookLang()));
+      if (v) { u.voice = v; u.lang = v.lang; }
+      u.rate = A.rate; u.pitch = A.pitch; u.volume = clamp(A.volume / 100, 0, 1);
+      const end = err => { previewStop = null; err ? reject(err) : resolve(); };
+      previewStop = () => { speechSynthesis.cancel(); end(); };
+      u.onend = () => end(); u.onerror = e => end(e && e.error === 'interrupted' || e && e.error === 'canceled' ? null : new Error('This voice could not play'));
+      speechSynthesis.speak(u); TTS.unlocked = true;
+    } catch (e) { reject(e); }
+  });
+}
+/* Is the voice service reachable? The Worker answers GET with a short text and the site's CORS headers. */
+async function edgeCheck() {
+  const endpoint = edgeProxyUrl();
+  if (!endpoint) return { ok: false, reason: 'No voice service address is set.' };
+  try {
+    const res = await fetchWithTimeout(endpoint, { method: 'GET', cache: 'no-store' }, 8000);
+    return res.ok ? { ok: true, reason: '' } : { ok: false, reason: 'The voice service answered HTTP ' + res.status + '.' };
+  } catch (e) { return { ok: false, reason: navigator.onLine ? 'The voice service did not respond.' : 'You are offline.' }; }
 }
 /* v2 UI (src/ui) registers replacements here; the engine's own sheets are used when it hasn't. */
 const UI = {};
@@ -6109,12 +6186,24 @@ function bindUI() {
   document.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove('dragging'); });
   document.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging'); if (e.dataTransfer && e.dataTransfer.files.length) importFiles(e.dataTransfer.files); });
 
-  // global guards: no pinch-zoom / rubber-banding outside scrollable areas
+  // global guards: no pinch-zoom / rubber-banding outside scrollable areas.
+  // A touch may scroll when it starts inside something that really scrolls (overflow auto/scroll
+  // with overflowing content, or a text field / slider). This replaced a hard-coded selector list that
+  // missed every v2 scroll container, which froze scrolling on iPhone (sheets, library, Discover).
+  const inScrollable = t => {
+    for (let n = t instanceof Element ? t : (t && t.parentElement); n && n !== document.documentElement; n = n.parentElement) {
+      if (n.matches && n.matches('input, textarea, select, [contenteditable="true"]')) return true;
+      const cs = getComputedStyle(n);
+      if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && n.scrollHeight > n.clientHeight + 1) return true;
+      if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && n.scrollWidth > n.clientWidth + 1) return true;
+    }
+    return false;
+  };
   ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
   document.addEventListener('touchmove', e => {
     if (!e.cancelable) return;
     if (e.touches && e.touches.length > 1) { e.preventDefault(); return; }
-    if (!e.target.closest('#library, .sheet-body, .list, input, textarea, .chat-log, .chat-chips, .dict-tabs')) e.preventDefault();
+    if (!inScrollable(e.target)) e.preventDefault();
   }, { passive: false });
   let lastTouchEnd = 0;
   document.addEventListener('touchend', e => { const now = Date.now(); if (now - lastTouchEnd < 300 && !e.target.closest('button, input, a')) e.preventDefault(); lastTouchEnd = now; }, { passive: false });
@@ -6231,10 +6320,12 @@ Object.assign(window.__reader, {
   voicesInfo() {
     const lang = bookLang();
     return { lang, loading: !Voices.list.length && !Voices.gaveUp, automatic: (TTS.voice() || { name: 'system default' }).name, edge: EDGE_VOICES.slice(),
-      device: Voices.sorted(lang).filter(v => !isNoveltyVoice(v)).map(v => ({ uri: v.voiceURI, name: v.name, lang: v.lang, local: !!v.localService })) };
+      device: Voices.sorted(lang).filter(v => !isNoveltyVoice(v)).map(v => ({ uri: v.voiceURI, name: v.name, lang: v.lang, local: !!v.localService })),
+      deviceTotal: Voices.list.length, ios: /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) };
   },
   loadVoices: () => Voices.load(), voicesRetry: () => Voices.retry(),
   setEdgeProxy, setEdgeVoice, setDeviceVoice, applyAudioPreset, resetAudio, previewVoice, runSpeechTest, speechReport, copyText,
+  selectVoice, previewVoiceFor, stopPreview, edgeCheck, edgeProxyOverride, defaultEdgeProxy: DEFAULT_TTS_ENDPOINT,
   /* session 5: reader features */
   ttsCharsPerSec: () => TTS.charsPerSec()
 });

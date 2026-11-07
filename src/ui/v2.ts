@@ -11,6 +11,7 @@ import { portalRoot } from './overlay.js';
 import { mountLibrary } from './library.js';
 import { mountReader } from './reader/index.js';
 import { mountDiscover } from './discover.js';
+import { mountTheme } from './theme.js';
 
 const KEY = 'marginalia.ui';
 const isOn = (): boolean => { try { return localStorage.getItem(KEY) === 'v2'; } catch { return false; } };
@@ -44,6 +45,7 @@ function start(): void {
   installTokens();
   installComponents();
   portalRoot();
+  mountTheme();
   mountLibrary();
   mountReader();
   mountDiscover();

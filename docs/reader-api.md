@@ -59,3 +59,12 @@ Events: `reader:progress`, `reader:selection` (`detail.open`), `reader:audio`, `
 | `App.r.busy`, `App.r.info()` | Read only: v2 waits for `busy` to clear before jumping (the 3D curl ignores `goTo` while it animates). |
 
 Test hook (v2 only): `window.__marginaliaStats` = `{ recordSample(ms, chars), addTime(sec, date?), load(), dayKey(date), speedCpm() }`, used to simulate reading time. Stats live in `localStorage` key `marginalia.stats.v1`; no IndexedDB change.
+
+## Added in the bugfix pass
+
+- `selectVoice(kind, id)`: `kind` is `'edge'` (id = voice name) or `'device'` (id = voiceURI, `''` = automatic). Sets engine and voice together, locks the voice, and restarts playback once. Remembered in `reader.audio`.
+- `previewVoiceFor(kind, id)`: plays a short sample of that voice and resolves when it ends (rejects with a readable message). `stopPreview()` cuts it off.
+- `edgeCheck()`: `{ ok, reason }`; asks the voice service (the Worker answers GET with a short text) whether it is reachable.
+- `defaultEdgeProxy`: the built-in voice service address (`DEFAULT_TTS_ENDPOINT` in `index.html`). `edgeProxyOverride()`: only a user-entered address. `edgeProxyUrl()` is the override, else the default. `setEdgeProxy('')` clears the override.
+- `voicesInfo()` also returns `deviceTotal` (every voice the browser reported) and `ios`.
+- App theme (separate from reading themes): `<html data-app-theme="dark|light">`, localStorage `marginalia.appTheme`, event `v2:theme`. Flux background: localStorage `marginalia.flux` (`"0"` = off), `<html data-flux>`.

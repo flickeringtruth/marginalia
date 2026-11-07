@@ -8,7 +8,7 @@ import { h, addStyle } from './dom.js';
 
 const CSS = `
 .v2-shell{position:absolute;inset:0;z-index:var(--z-base);display:grid;grid-template-rows:auto minmax(0,1fr) auto;
-  height:100%;height:100dvh;overflow:hidden;background-color:var(--v2-bg);background-image:var(--bg-image);background-size:100% 100%;
+  height:100%;height:100dvh;overflow:hidden;background-color:var(--v2-bg);
   color:var(--v2-fg);font-family:var(--v2-sans);-webkit-font-smoothing:antialiased}
 .v2-shell[hidden]{display:none}
 .v2-bar{position:relative;z-index:var(--z-bars);box-sizing:border-box;padding-left:calc(var(--sal) + var(--v2-gutter));padding-right:calc(var(--sar) + var(--v2-gutter))}
@@ -24,7 +24,7 @@ const CSS = `
 .v2-inner{max-width:var(--v2-max);margin:0 auto}
 .v2-drop{position:fixed;inset:calc(var(--sat) + 12px) calc(var(--sar) + 12px) calc(var(--sab) + 12px) calc(var(--sal) + 12px);z-index:var(--z-overlay);
   display:none;align-items:center;justify-content:center;border:2px dashed var(--v2-accent);border-radius:var(--v2-r-xl);pointer-events:none;
-  background:color-mix(in srgb,var(--v2-bg) 82%,transparent);color:var(--v2-accent);font:600 var(--v2-t-md)/1 var(--v2-sans)}
+  background:color-mix(in srgb,var(--v2-bg) 82%,transparent);color:var(--v2-accent-text);font:600 var(--v2-t-md)/1 var(--v2-sans)}
 body.dragging .v2-drop{display:flex}
 `;
 

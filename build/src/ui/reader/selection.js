@@ -13,19 +13,19 @@ import { portalRoot } from '../overlay.js';
 import { noteFromSelection } from './contents.js';
 const CSS = `
 .v2-selmenu{position:fixed;left:0;top:0;z-index:var(--z-menu);box-sizing:border-box;width:max-content;max-width:min(380px,calc(100vw - 16px));
-  padding:6px;border-radius:var(--v2-r-lg);background:rgba(30,30,32,.97);color:#fff;box-shadow:var(--v2-shadow-2);font-family:var(--v2-sans);
+  padding:6px;border-radius:var(--v2-r-lg);background:var(--v2-pop-bg);color:var(--v2-pop-fg);box-shadow:var(--v2-shadow-2);font-family:var(--v2-sans);
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
 .v2-selmenu[hidden]{display:none}
-.v2-selmenu .colors{display:flex;justify-content:center;gap:2px;padding-bottom:4px;margin-bottom:4px;border-bottom:1px solid rgba(255,255,255,.14)}
+.v2-selmenu .colors{display:flex;justify-content:center;gap:2px;padding-bottom:4px;margin-bottom:4px;border-bottom:1px solid var(--v2-pop-line)}
 .v2-selmenu .dot{display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:0;border-radius:12px;background:none;cursor:pointer}
 .v2-selmenu .dot i{width:26px;height:26px;border-radius:13px;border:2.5px solid transparent;box-sizing:border-box}
-.v2-selmenu .dot[aria-pressed="true"] i{border-color:#fff}
+.v2-selmenu .dot[aria-pressed="true"] i{border-color:var(--v2-pop-fg)}
 .v2-selmenu .acts{display:flex;flex-wrap:wrap;justify-content:center;gap:2px}
 .v2-selmenu .act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:52px;min-height:52px;padding:4px 6px;border:0;border-radius:12px;
-  background:none;color:#fff;font:500 11px/1 var(--v2-sans);cursor:pointer}
+  background:none;color:var(--v2-pop-fg);font:500 11px/1 var(--v2-sans);cursor:pointer}
 .v2-selmenu .act .v2-icon{width:20px;height:20px}
-.v2-selmenu .act.danger{color:#ff6961}
-.v2-selmenu button:hover,.v2-selmenu button:focus-visible{background:rgba(255,255,255,.12);box-shadow:none}
+.v2-selmenu .act.danger{color:var(--v2-pop-danger)}
+.v2-selmenu button:hover,.v2-selmenu button:focus-visible{background:var(--v2-pop-hover);box-shadow:none}
 `;
 const FUI_URL = new URL('../../../../vendor/floating-ui/floating-ui.dom.js', import.meta.url).href;
 let fui = null;

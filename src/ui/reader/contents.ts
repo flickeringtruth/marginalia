@@ -28,7 +28,7 @@ const CSS = `
 .v2-row .dot{display:inline-block;width:10px;height:10px;border-radius:5px;margin-right:6px;vertical-align:middle}
 .v2-toc .go{font:400 var(--v2-t-base)/1.35 var(--v2-sans)}
 .v2-toc .go.d1{padding-left:20px}.v2-toc .go.d2{padding-left:36px}.v2-toc .go.d3{padding-left:52px}
-.v2-toc .go[aria-current="true"]{color:var(--v2-accent);font-weight:600}
+.v2-toc .go[aria-current="true"]{color:var(--v2-accent-text);font-weight:600}
 .v2-bm-tools{display:flex;flex-wrap:wrap;gap:var(--v2-s2);align-items:center;margin:0 0 var(--v2-s3)}
 .v2-bm-tools .v2-input{flex:1 1 160px;min-width:0}
 .v2-quote{margin:0 0 var(--v2-s3);padding:6px 0 6px 12px;border-left:3px solid var(--v2-accent);font:400 15px/1.45 var(--v2-serif)}

@@ -34,6 +34,12 @@ These effects were ported from Magic UI's React components into plain JavaScript
 
 Only change: the import of `@floating-ui/core` in `floating-ui.dom.js` points to `./floating-ui.core.js`, and both files use `.js` instead of `.mjs` so GitHub Pages serves them as JavaScript.
 
+| Component | Use | Licence | Source | Files |
+|---|---|---|---|---|
+| simplex-noise 4.0.3 | Noise for the slow "flux" background on the library, Discover and Settings (drawn to a tiny canvas) | MIT, Copyright (c) 2018 Jonas Wagner (`vendor/simplex-noise/LICENSE`) | https://www.npmjs.com/package/simplex-noise/v/4.0.3 (`dist/esm/simplex-noise.js`, 18.7 KB, no dependencies) | `vendor/simplex-noise/simplex-noise.js` |
+
+Unchanged copy of the package's ES module.
+
 ## Researched for ideas (not copied)
 
 | Project | Why it was reviewed | Licence status |

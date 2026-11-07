@@ -10,14 +10,19 @@ import { addStyle } from './dom.js';
 
 const TOKENS = `
 :root{
-  /* colour */
-  --v2-bg:var(--bg); --v2-fg:var(--fg); --v2-muted:var(--muted); --v2-line:var(--line);
-  --v2-surface:var(--card); --v2-sheet:var(--sheet); --v2-chrome:var(--chrome);
-  --v2-accent:var(--accent); --v2-on-accent:#fff; --v2-danger:var(--danger,#ff3b30);
-  --v2-scrim:rgba(0,0,0,.32);
-  --v2-shadow-1:0 1px 2px rgba(0,0,0,.08),0 4px 12px -6px rgba(0,0,0,.22);
-  --v2-shadow-2:0 2px 6px rgba(0,0,0,.08),0 18px 48px -12px rgba(0,0,0,.35);
-  --v2-focus:0 0 0 3px color-mix(in srgb,var(--accent) 45%,transparent);
+  /* colour: the app theme (--app-*, defined in index.html's <head> so it is there before first paint).
+     Reading-page themes are separate: only #v2-reader below goes back to the engine's variables. */
+  --v2-bg:var(--app-bg); --v2-fg:var(--app-text); --v2-muted:var(--app-muted); --v2-line:var(--app-border);
+  --v2-surface:var(--app-surface); --v2-sheet:var(--app-surface); --v2-chrome:var(--app-bg);
+  --v2-accent:var(--app-accent); --v2-accent-text:var(--app-accent-text); --v2-on-accent:var(--app-on-accent);
+  --v2-danger:var(--app-danger); --v2-ok:var(--app-ok); --v2-scrim:var(--app-scrim);
+  --v2-thumb:#fff; --v2-pin:#ffd60a; --v2-on-pin:#5c4400;
+  --v2-toast-bg:var(--app-text); --v2-toast-fg:var(--app-bg);
+  /* the text-selection popover is always dark, over any reading theme */
+  --v2-pop-bg:rgba(30,30,32,.97); --v2-pop-fg:#fff; --v2-pop-line:rgba(255,255,255,.14); --v2-pop-hover:rgba(255,255,255,.12); --v2-pop-danger:#ff6961;
+  --v2-shadow-1:0 1px 2px color-mix(in srgb,var(--app-shadow) 45%,transparent),0 4px 12px -6px var(--app-shadow);
+  --v2-shadow-2:0 2px 6px color-mix(in srgb,var(--app-shadow) 45%,transparent),0 18px 48px -12px var(--app-shadow);
+  --v2-focus:0 0 0 3px color-mix(in srgb,var(--app-accent) 55%,transparent);
 
   /* spacing */
   --v2-s1:4px; --v2-s2:8px; --v2-s3:12px; --v2-s4:16px; --v2-s5:20px; --v2-s6:24px; --v2-s8:32px; --v2-s10:40px;
@@ -43,7 +48,13 @@ const TOKENS = `
   /* touch */
   --v2-tap:44px;
 }
-html.dark{--v2-scrim:rgba(0,0,0,.55);--v2-shadow-1:0 1px 2px rgba(0,0,0,.4),0 4px 12px -6px rgba(0,0,0,.6);--v2-shadow-2:0 2px 6px rgba(0,0,0,.4),0 18px 48px -12px rgba(0,0,0,.7)}
+/* Controls that sit on a sheet or menu use the raised level; the sheet itself is the surface level. */
+#v2-portal{--v2-surface:var(--app-raised);--accent:var(--app-accent);--line:var(--app-border)}   /* --accent/--line: the engine's range sliders read these */
+/* The reader's own bars and mini player belong to the page, so they follow the reading theme. */
+#v2-reader{--v2-bg:var(--bg); --v2-fg:var(--fg); --v2-muted:var(--muted); --v2-line:var(--line);
+  --v2-surface:var(--card); --v2-sheet:var(--sheet); --v2-chrome:var(--chrome);
+  --v2-accent:var(--accent); --v2-accent-text:var(--accent); --v2-on-accent:#fff; --v2-danger:var(--danger,#ff3b30);
+  --v2-focus:0 0 0 3px color-mix(in srgb,var(--accent) 45%,transparent)}
 @media (prefers-reduced-motion:reduce){:root{--v2-d-fast:0ms;--v2-d-base:0ms;--v2-d-slow:0ms}}
 `;
 

@@ -18,6 +18,7 @@ import { h, addStyle, reader, reduceMotion } from './dom.js';
 import { icon } from './icons.js';
 import { Button, IconButton, Segmented, Sheet, EmptyState, showToast } from './components.js';
 import { openLayer } from './overlay.js';
+import { attachFlux } from './flux.js';
 const API = 'https://gutendex.com/books/';
 const FILTERS = 'copyright=false&mime_type=' + encodeURIComponent('application/epub+zip');
 const GUTENBERG_ORIGIN = 'https://www.gutenberg.org';
@@ -189,7 +190,7 @@ const CSS = `
 .v2-discover .dtext b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font:400 17px/1.25 var(--v2-serif)}
 .v2-discover .dtext span{display:block;margin-top:3px;font:500 var(--v2-t-sm)/1.3 var(--v2-sans);color:var(--v2-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v2-discover .dtext small{display:block;margin-top:3px;font:400 var(--v2-t-xs)/1.3 var(--v2-sans);color:var(--v2-muted);font-variant-numeric:tabular-nums}
-.v2-discover .dtext .in{color:var(--v2-accent);font-weight:600}
+.v2-discover .dtext .in{color:var(--v2-accent-text);font-weight:600}
 @media (min-width:640px){
   .v2-discover .dlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:24px 18px}
   .v2-discover .ditem{grid-template-columns:1fr;align-items:start;padding:0;gap:10px;border-radius:var(--v2-r-sm)}
@@ -213,7 +214,7 @@ const CSS = `
 .v2-detail .subs{display:flex;flex-wrap:wrap;gap:6px;margin:var(--v2-s3) 0 0;padding:0;list-style:none}
 .v2-detail .subs li{padding:4px 10px;border-radius:var(--v2-r-pill);background:var(--v2-surface);font:500 var(--v2-t-xs)/1.4 var(--v2-sans);color:var(--v2-muted)}
 .v2-detail .acts{display:flex;flex-direction:column;gap:var(--v2-s2);margin-top:var(--v2-s5)}
-.v2-detail .have{display:flex;align-items:center;gap:6px;font:600 var(--v2-t-sm)/1.3 var(--v2-sans);color:var(--v2-accent)}
+.v2-detail .have{display:flex;align-items:center;gap:6px;font:600 var(--v2-t-sm)/1.3 var(--v2-sans);color:var(--v2-accent-text)}
 .v2-detail .have .v2-icon{width:18px;height:18px}
 @media (prefers-reduced-motion:reduce){.v2-discover .skel .dcover,.v2-discover .skel .line{animation:none}.v2-discover .dcover,.v2-discover .dcover img{transition:none}}
 `;
@@ -249,6 +250,7 @@ async function refreshLibrary() {
     }
     catch { /* keep the last known set */ }
 }
+let fluxed = false;
 export function openDiscover() {
     addStyle('v2-discover', CSS);
     if (closeDiscover)
@@ -256,6 +258,10 @@ export function openDiscover() {
     if (!panel)
         build();
     const p = panel, r = refs;
+    if (!fluxed) {
+        fluxed = true;
+        attachFlux(p);
+    }
     closeDiscover = openLayer(p, {
         kind: 'sheet', modal: true, initialFocus: r.input,
         onClose: () => { st.scroll = r.main.scrollTop; closeDiscover = null; },

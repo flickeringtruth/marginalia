@@ -3,12 +3,16 @@
    (setSetting, setGrad, setAudio and the session-1 audio helpers), so behaviour is unchanged. */
 
 import { h, addStyle, reader } from '../dom.js';
-import { Button, IconButton, Chip, Field, Toggle, Slider, Segmented, Sheet, showToast } from '../components.js';
+import { Button, IconButton, Chip, Toggle, Slider, Segmented, Sheet, showToast } from '../components.js';
+import { VoicePicker } from './voices.js';
+import { appTheme, setAppTheme, AppTheme } from '../theme.js';
+import { attachFlux, fluxEnabled, setFluxEnabled } from '../flux.js';
 
 type Tab = 'look' | 'audio';
 const V2_KEY = 'marginalia.ui';
 
 const CSS = `
+.v2-settings .v2-sheet-body>.v2-seg{margin-bottom:var(--v2-s4)}
 .v2-settings .grp{padding:var(--v2-s4) 0;border-top:1px solid var(--v2-line)}
 .v2-settings .grp:first-of-type{border-top:0;padding-top:0}
 .v2-settings h3{margin:0 0 var(--v2-s2);font:600 var(--v2-t-sm)/1.3 var(--v2-sans);color:var(--v2-muted);letter-spacing:.01em}
@@ -55,9 +59,11 @@ export function openSettings(tab: Tab = 'look', focusGroup?: string): void {
   const onTest = (e: DocumentEventMap['reader:speechtest']) => { const out = view.querySelector('[data-test-out]'), rep = view.querySelector('[data-test-rep]'); if (out) out.textContent = e.detail.message; if (rep) { rep.textContent = e.detail.report; (rep as HTMLElement).hidden = false; } };
   document.addEventListener('reader:audio', onAudio);
   document.addEventListener('reader:speechtest', onTest);
+  let detachFlux: () => void = () => undefined;
   const sheet = Sheet({ title: 'Settings', className: 'v2-settings', content: [tabs, view], onClose: () => {
-    document.removeEventListener('reader:audio', onAudio); document.removeEventListener('reader:speechtest', onTest); current = null;
+    document.removeEventListener('reader:audio', onAudio); document.removeEventListener('reader:speechtest', onTest); current = null; detachFlux();
   } });
+  detachFlux = attachFlux(sheet.panel);
   function draw(): void {
     const top = sheet.body.scrollTop;
     view.replaceChildren(...(active === 'look' ? appearance(draw) : audio(draw)));
@@ -88,6 +94,11 @@ function appearance(redraw: () => void): Node[] {
   const toggle = (label: string, key: string) => Toggle({ label, checked: !!S[key], onChange: v => set(key, v, key === 'layout') });
 
   const out: Node[] = [];
+  // App look: the chrome (library, Discover, sheets). Separate from the reading page theme below.
+  out.push(grp('App',
+    h('div', {}, lab('App theme'), Segmented<AppTheme>({ label: 'App theme', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], value: appTheme(), onChange: v => setAppTheme(v) })),
+    Toggle({ label: 'Animated background', checked: fluxEnabled(), onChange: v => setFluxEnabled(v) }),
+    hint('The app theme colours the library, Discover and menus. It does not change the page you read on; that is set under Reading page theme.')));
   const size = h('output', { text: S.fontSize + ' px' });
   out.push(grp('Text',
     isPdf ? null : h('div', { class: 'size' },
@@ -122,7 +133,7 @@ function appearance(redraw: () => void): Node[] {
       Slider({ label: 'Intensity', min: 0.05, max: 1, step: 0.01, value: g.intensity, format: v => Math.round(v * 100) + '%', onInput: v => r.setGrad({ intensity: v }) }),
       hint('Text contrast ' + gi.minC.toFixed(1) + ':1' + (gi.limited ? ' — intensity is capped at ' + Math.round(gi.k * 100) + '% to keep the text readable (WCAG 4.5:1).' : ' (meets WCAG AA).'))));
   }
-  out.push(grp('Theme', themes, ...extra));
+  out.push(grp('Reading page theme', themes, ...extra));
 
   if (!isPdf) {
     const fonts = h('div', { class: 'v2-fonts', role: 'radiogroup', 'aria-label': 'Font' }, ...r.fonts().map(f => {
@@ -177,67 +188,19 @@ function audio(redraw: () => void): Node[] {
   const out: Node[] = [];
   const edge = A.engine === 'edge';
 
-  // engine
-  const engine: Node[] = [Segmented<'device' | 'edge'>({ label: 'Engine', options: [{ value: 'device', label: 'Device voices' }, { value: 'edge', label: 'EdgeTTS' }], value: edge ? 'edge' : 'device', onChange: v => set('engine', v) })];
-  if (edge) {
-    const proxy = Field({ label: 'Worker URL', value: r.edgeProxyUrl(), placeholder: 'https://your-worker.workers.dev' });
-    proxy.input.type = 'url'; proxy.input.autocapitalize = 'off';
-    const search = Field({ label: 'Search voices', placeholder: 'Search voices or languages' }); search.input.type = 'search';
-    const select = h('select', { class: 'v2-input', 'aria-label': 'EdgeTTS voice' });
-    const fill = () => {
-      const q = search.input.value.trim().toLowerCase();
-      const list = r.voicesInfo().edge.filter(v => v.toLowerCase().includes(q));
-      const groups = new Map<string, string[]>();
-      list.forEach(v => { const k = v.slice(0, 5); if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(v); });
-      select.replaceChildren(...(list.includes(A.edgeVoice) ? [] : [h('optgroup', { label: 'Current' }, h('option', { value: A.edgeVoice, text: A.edgeVoice }))]),
-        ...[...groups].map(([lang, vs]) => h('optgroup', { label: lang + ' (' + vs.length + ')' }, ...vs.map(v => h('option', { value: v, text: v })))));
-      select.value = A.edgeVoice;
-    };
-    const step = (d: number) => {
-      const q = search.input.value.trim().toLowerCase(), list = r.voicesInfo().edge.filter(v => v.toLowerCase().includes(q));
-      if (!list.length) { showToast('No voices match your search'); return; }
-      r.setEdgeVoice(list[(list.indexOf(A.edgeVoice) + d + list.length) % list.length]); fill();
-    };
-    search.input.addEventListener('input', fill);
-    select.addEventListener('change', () => r.setEdgeVoice(select.value));
-    fill();
-    engine.push(
-      h('div', { class: 'v2-inline', style: 'margin-top:12px' }, proxy.input, Button({ label: 'Save', variant: 'primary', onClick: () => { r.setEdgeProxy(proxy.input.value); } })),
-      hint('The Cloudflare Worker address used for EdgeTTS. It is saved on this device.'),
-      search.el,
-      h('label', { class: 'v2-field' }, h('span', { text: 'Voice' }), select),
-      h('div', { class: 'v2-inline', style: 'margin-top:8px' },
-        Button({ label: 'Previous voice', icon: 'chevron-left', onClick: () => step(-1) }),
-        Button({ label: 'Next voice', icon: 'chevron-right', onClick: () => step(1) }),
-        Button({ label: 'Preview', icon: 'play', onClick: () => r.previewVoice() })),
-      hint('EdgeTTS uses Microsoft’s unofficial Edge read-aloud service, not a public API. Microsoft can still throttle or block it at any time. Caching and downloads cut down how often it is asked, but they can’t prevent that. If it refuses 3 times in a row, reading continues with your device voice.'),
-      h('div', { class: 'v2-dl', 'data-tts-downloads': '' }));
-    proxy.input.setAttribute('aria-label', 'EdgeTTS Worker URL');
-  }
-  out.push(grp('Engine', ...engine));
-
-  // device voice
-  const vi = r.voicesInfo();
+  // One voice list (Online + On this device). Picking a row sets engine and voice together.
+  const picker = VoicePicker(redraw);
   const presets: [string, string][] = [['auto', 'Best available'], ['deep', 'Deep'], ['natural', 'Natural'], ['narrator', 'Narrator'], ['story', 'Storytelling']];
-  const vsel = h('select', { class: 'v2-input', 'aria-label': 'Device voice' });
-  const base = vi.lang.split('-')[0].toLowerCase();
-  const mine = vi.device.filter(v => v.lang.toLowerCase().startsWith(base)), other = vi.device.filter(v => !mine.includes(v));
-  const opt = (v: { uri: string; name: string; lang: string; local: boolean }) => h('option', { value: v.uri, text: v.name + ' — ' + v.lang + (v.local ? '' : ' · online') });
-  const voiceOptions: (Node | null)[] = [h('option', { value: '', text: vi.device.length ? 'Automatic (' + vi.automatic + ')' : vi.loading ? 'Loading voices…' : 'No device voices found yet. Tap to check again.' }),
-    mine.length ? h('optgroup', { label: 'Matches book language' }, ...mine.map(opt)) : null,
-    other.length ? h('optgroup', { label: 'Other languages' }, ...other.map(opt)) : null];
-  vsel.replaceChildren(...voiceOptions.filter((x): x is Node => !!x));
-  vsel.value = vi.device.some(v => v.uri === A.voiceURI) ? A.voiceURI : '';
-  vsel.addEventListener('change', () => r.setDeviceVoice(vsel.value));
-  vsel.addEventListener('focus', () => { if (!vi.device.length) { r.voicesRetry(); void r.loadVoices().then(redraw); } });
-  if (!vi.device.length) void r.loadVoices().then(() => { if (r.voicesInfo().device.length) redraw(); });
   out.push(grp('Voice',
-    h('div', { class: 'chips', role: 'group', 'aria-label': 'Voice style' }, ...presets.map(([v, l]) => Chip({ label: l, pressed: A.preset === v, onClick: () => { r.applyAudioPreset(v); redraw(); } }))),
-    h('div', { class: 'v2-inline', style: 'margin-top:12px' }, vsel, Button({ label: 'Preview', icon: 'play', onClick: () => r.previewVoice() })),
+    picker.el,
+    h('div', { class: 'chips', role: 'group', 'aria-label': 'Voice style', style: 'margin-top:16px' }, ...presets.map(([v, l]) => Chip({ label: l, pressed: A.preset === v, onClick: () => { r.applyAudioPreset(v); redraw(); } }))),
+    hint('Voice style sets speed and pitch, and, for device voices, the best matching voice.'),
     Toggle({ label: 'Lock selected voice', checked: !!A.voiceLocked, onChange: v => set('voiceLocked', v, false) }),
-    hint('When locked, the selected voice won’t change automatically. If it can’t play, reading pauses instead of switching. Exception: if EdgeTTS is rate-limited 3 times in a row, reading continues with your device voice for this session.'),
+    hint('When locked, the selected voice won’t change automatically. If it can’t play, reading pauses instead of switching. Exception: if online voices are rate-limited 3 times in a row, reading continues with your device voice for this session.'),
     Toggle({ label: 'Storytelling cadence', checked: !!A.cadence, onChange: v => set('cadence', v, false) }),
-    hint('Voices come from your device and are free. For more natural voices on iPhone or iPad, download an Enhanced or Premium voice in Settings › Accessibility › Spoken Content › Voices.')));
+    hint('Online voices use Microsoft’s unofficial Edge read-aloud service, not a public API. Microsoft can still throttle or block it at any time. Caching and downloads cut down how often it is asked, but they can’t prevent that. Each request is limited to 1,200 characters, so long passages are sent in pieces. Device voices are free and work offline.'),
+    edge ? h('div', { class: 'v2-dl', 'data-tts-downloads': '' }) : null,
+    picker.advanced));
 
   const vol = Slider({ label: 'Volume', min: 0, max: 200, step: 5, value: A.volume, format: v => v + '%', onInput: v => { set('volume', v, false); volHint.hidden = v <= 100; } });
   const volHint = hint('Browsers can’t play speech louder than 100%. Above that, raise your device volume.'); volHint.hidden = A.volume <= 100;
