@@ -1114,11 +1114,9 @@ const TTSAudioCache = (() => {
     });
   }
   return {
-    get(id) { return tx('readwrite', store => {
-      const request = store.get(id);
-      request.onsuccess = () => { if (request.result) store.put(Object.assign({}, request.result, { lastUsed: Date.now() })); };
-      return request;
-    }); },
+    /* Read only. It used to write the whole entry (audio Blob included) back to refresh lastUsed on every hit; on Safari
+       re-putting a Blob that came out of IndexedDB can fail or corrupt it, which showed up as playback errors. */
+    get(id) { return tx('readonly', store => store.get(id)); },
     put(entry) { return tx('readwrite', store => {
       const request = store.put(entry);
       request.onsuccess = () => {
@@ -3652,8 +3650,13 @@ const TTS = {
     if (cacheId) {
       try {
         const cached = await TTSAudioCache.get(cacheId);
-        if (cached && cached.text === text && cached.voice === voice) { this.logEv('edge-cache-hit', cacheId); return { blob: cached.audio, boundaries: cached.boundaries || [] }; }
-      } catch (e) { this.logEv('edge-cache-read-failed', e.message); }
+        if (cached && cached.text === text && cached.voice === voice) {
+          // Read the bytes now. Safari can hold a cache entry whose Blob file is gone ("The object can not be found here");
+          // that must fall through to the network instead of failing playback.
+          const bytes = await cached.audio.arrayBuffer();
+          if (bytes.byteLength > 500) { this.logEv('edge-cache-hit', cacheId); return { blob: new Blob([bytes], { type: cached.audio.type || 'audio/mpeg' }), boundaries: cached.boundaries || [] }; }
+        }
+      } catch (e) { this.logEv('edge-cache-read-failed', e.name + ': ' + e.message); }
     }
     const endpoint = edgeProxyUrl();
     if (!endpoint) throw new Error('Add your Edge TTS Worker URL in audio settings');
@@ -3746,7 +3749,16 @@ const TTS = {
       if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
       if (result.error) throw result.error;
       const ctx = await this.getEdgeAudioContext();
-      const decoded = await ctx.decodeAudioData(await result.blob.arrayBuffer());
+      let bytes;
+      try { bytes = await result.blob.arrayBuffer(); }
+      catch (e) {
+        // A downloaded or cached Blob that can no longer be read: ask the service again (no cache, no downloads).
+        this.logEv('edge-blob-unreadable', e.name + ': ' + e.message);
+        const fresh = await this.edgeAudio(request.text, request.controller.signal, null, { rate: this.edgeChunkRequest(this.model, i, request.from).rate, pitch: this.edgeChunkRequest(this.model, i, request.from).pitch });
+        result.boundaries = fresh.boundaries; result.from = request.from; result.text = request.text;
+        bytes = await fresh.blob.arrayBuffer();
+      }
+      const decoded = await ctx.decodeAudioData(bytes);
       if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
       const trimmed = this.trimEdgeSilence(ctx, decoded);
       const from = result.from != null ? result.from : request.from, text = result.text || request.text;
@@ -3894,6 +3906,14 @@ const TTS = {
       this.prefetchEdgeChunk(i + 2, tk);
     } catch (err) {
       if (tk !== this.token || err.name === 'AbortError') return;
+      this.logEv('edge-error-detail', err.name + ': ' + err.message + ' @ ' + String(err.stack || '').split(String.fromCharCode(10))[0]);
+      // One quiet retry for anything that is not a rate limit (an unreadable cached file, a dropped connection),
+      // so a single bad chunk does not pause the book.
+      if (!err.rateLimited && this.edgeRetried !== tk + ':' + i) {
+        this.edgeRetried = tk + ':' + i;
+        this.edgeRequests.delete(i); this.edgeReady.delete(i);
+        return this.speakChunkEdge(i, from, tk);
+      }
       this.edgeError(i, from, tk, err.message, err.rateLimited);
     }
   },
