@@ -40,12 +40,13 @@ body:not(.chrome-on) #v2-reader .rtop{transform:translateY(-8px)}
 body:not(.chrome-on) #v2-reader .rbottom{transform:translateY(8px)}
 body.chrome-on #v2-reader .rbar{transition:opacity var(--v2-d-base) var(--v2-ease),transform var(--v2-d-base) var(--v2-ease),visibility 0s}
 #v2-reader .rtitle{flex:1;min-width:0;text-align:center;padding:0 4px;line-height:1.2}
-#v2-reader .rtitle b{display:block;font:600 var(--v2-t-sm)/1.25 var(--v2-sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* titles wrap onto a second line instead of being cut at the first few words */
+#v2-reader .rtitle b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;font:600 var(--v2-t-sm)/1.2 var(--v2-sans);overflow:hidden;overflow-wrap:anywhere;text-wrap:balance}
 #v2-reader .rtitle span{display:block;font:400 var(--v2-t-xs)/1.25 var(--v2-sans);color:var(--v2-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #v2-reader .v2-ibtn[aria-pressed="true"]{color:var(--v2-accent);background:color-mix(in srgb,var(--v2-accent) 14%,transparent)}
 #v2-reader .scrub{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 4px}
 #v2-reader .scrub input{width:100%;height:28px;margin:0;accent-color:var(--v2-accent)}
-#v2-reader .scrub .lbl{font:500 var(--v2-t-xs)/1.2 var(--v2-sans);color:var(--v2-muted);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+#v2-reader .scrub .lbl{font:500 var(--v2-t-xs)/1.2 var(--v2-sans);color:var(--v2-muted);text-align:center;overflow:hidden;font-variant-numeric:tabular-nums;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;text-wrap:balance}
 /* narrow phones: Bookmarks and Dictionary move into More, the title goes to the bottom label */
 @media (max-width:479px){#v2-reader .wide-only{display:none}}
 @media (max-width:599px){#v2-reader .wider-only{display:none}}

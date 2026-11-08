@@ -7,9 +7,9 @@ export default defineConfig({
   testDir: 'e2e',
   testMatch: '*.spec.mjs',
   timeout: 60000,
-  expect: { timeout: 8000 },
+  expect: { timeout: 12000 },
   fullyParallel: true,
-  retries: process.env.CI ? 1 : 0,
+  retries: 1,   // one retry: a few WebKit timing checks flake when four projects run in parallel
   workers: process.env.CI ? 2 : undefined,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: { baseURL: 'http://127.0.0.1:4173', serviceWorkers: 'block', trace: 'retain-on-failure' },

@@ -77,3 +77,19 @@ test('Edge requests carry several sentences each and stay under the 1,200-charac
   expect(lengths.some(n => n > 300), `request sizes ${lengths}`).toBe(true);
   await page.evaluate(() => { window.__reader.TTS.stop(false); });
 });
+
+test('an unreadable downloaded or cached audio file falls back to the network instead of pausing the book', async ({ page, app, worker }, info) => {
+  test.skip(info.project.name.startsWith('webkit'), 'audio playback is checked in Chromium');
+  await app.importBook(true);
+  await page.evaluate(() => {
+    // what Safari does when a Blob stored by the page has lost its file: reading it throws NotFoundError
+    const broken = new Blob([new Uint8Array(2000)], { type: 'audio/mpeg' });
+    broken.arrayBuffer = () => Promise.reject(new DOMException('The object can not be found here.', 'NotFoundError'));
+    window.__marginaliaTTSDownloads.lookup = async () => ({ blob: broken, boundaries: [] });
+    const R = window.__reader; R.setAudio('volume', 0); R.selectVoice('edge', 'en-US-AvaNeural'); R.TTS.playFrom(0, 0);
+  });
+  await expect.poll(() => worker.posts.length, { timeout: 15000 }).toBeGreaterThan(0);
+  await page.waitForTimeout(1500);
+  expect(await page.evaluate(() => window.__reader.TTS.state)).toBe('playing');
+  expect(await page.evaluate(() => document.getElementById('toast').textContent)).not.toMatch(/EdgeTTS failed/);
+});
