@@ -67,7 +67,7 @@ html.ui-v2 #scrim{z-index:calc(var(--z-sheet) - 1)}
 html.ui-v2 .sheet,html.ui-v2 .drawer,html.ui-v2 .ml-overlay,html.ui-v2 .ml-over2,html.ui-v2 .mlu-overlay{z-index:var(--z-sheet)}
 html.ui-v2 #loading,html.ui-v2 #nameGate,html.ui-v2 .mlb-overlay{z-index:var(--z-overlay)}
 html.ui-v2 .ml-part{z-index:var(--z-menu)}
-html.ui-v2 #toast{z-index:var(--z-toast)}
+html.ui-v2 #toast{z-index:var(--z-toast);bottom:calc(var(--bottom-chrome-height,var(--sab)) + 16px);width:max-content;max-width:min(440px,calc(100vw - 32px));box-sizing:border-box}   /* above the bars and the mini player, never over them */
 /* The engine's tool screens (dictionary, vocabulary, AI chat, messages, catalog sheets) are dialogs, so they follow the
    app theme like every other sheet. They read the engine's own variables, so those are re-pointed here; the
    book page and the reader's floating controls keep the reading theme. */

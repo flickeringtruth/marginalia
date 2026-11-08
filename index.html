@@ -157,17 +157,28 @@ body.dragging .drop-hint{display:flex}
 .speed-head #speedChapterSelect{flex:1}
 .speed-head #speedWpmSelect{width:112px;text-align:center;font-variant-numeric:tabular-nums}
 .speed-close{width:40px;height:40px;flex:none;border-radius:20px;background:var(--card);font-size:24px;line-height:1}
-.speed-context{position:relative;flex:none;max-height:min(28vh,220px);overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);padding:10px 14px}
-.speed-context-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
-.speed-context-head b{flex:1;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-.speed-context-head button{width:32px;height:32px;border-radius:16px;font-size:18px}
-.speed-context-text{font-size:clamp(14px,2.1vh,18px);line-height:1.55;color:var(--muted);overflow-wrap:anywhere}
-.speed-context-text mark{background:none;color:var(--accent);font-weight:700}
-.speed-stage{flex:1;min-height:100px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}
-.speed-step{font-size:clamp(34px,7vh,58px);line-height:1;color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
-.speed-word{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;width:min(760px,100%);font-family:var(--ff);font-size:clamp(40px,9vw,76px);line-height:1.1;font-variant-ligatures:none;text-align:center}
+.speed-stage{flex:1;min-height:160px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:clamp(8px,2vh,18px);width:min(760px,100%);margin:0 auto}
+#speedReader{--speed-focus:var(--accent)}
+/* two lines of the text just before and just after the word, dimmed and fading away from it */
+.speed-ctx{width:100%;height:3em;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;padding:0 4px;font:clamp(15px,2.2vh,19px)/1.5 var(--ff);color:var(--muted);text-align:center;overflow-wrap:anywhere}
+.speed-ctx-before{justify-content:flex-end;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 75%);mask-image:linear-gradient(to bottom,transparent,#000 75%)}
+.speed-ctx-after{justify-content:flex-start;-webkit-mask-image:linear-gradient(to top,transparent,#000 75%);mask-image:linear-gradient(to top,transparent,#000 75%)}
+.speed-ctx.off{visibility:hidden}
+.speed-style-btn{width:40px;height:40px;flex:none;border-radius:20px;background:var(--card);font-size:18px}
+.speed-style-panel{position:absolute;top:calc(var(--sat) + 62px);right:calc(var(--sar) + 16px);z-index:3;display:grid;gap:12px;width:min(300px,calc(100vw - 32px));box-sizing:border-box;padding:14px;border:1px solid var(--line);border-radius:16px;background:var(--sheet);box-shadow:0 14px 40px rgba(0,0,0,.28)}
+.speed-style-panel h3{margin:0;font-size:13px;color:var(--muted);font-weight:600}
+.speed-swatches{display:flex;flex-wrap:wrap;gap:10px}
+.speed-sw{width:36px;height:36px;border-radius:18px;border:2px solid transparent;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)}
+.speed-sw[aria-pressed="true"]{border-color:var(--fg);box-shadow:0 0 0 2px var(--sheet) inset}
+.speed-style-panel input[type=color]{width:44px;height:36px;padding:0;border:0;border-radius:10px;background:none}
+.speed-style-row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px}
+.speed-style-row button{min-width:64px;height:36px;padding:0 12px;border-radius:18px;background:var(--card);font-weight:600}
+.speed-word{--sw:1;position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;width:100%;padding:16px 0;font-family:var(--ff);font-size:calc(clamp(38px,8.5vw,72px) * var(--sw));line-height:1.15;font-variant-ligatures:none;text-align:center;white-space:nowrap}
+/* guide ticks above and below the pivot letter, which always sits in the exact middle */
+.speed-word::before,.speed-word::after{content:"";position:absolute;left:50%;width:2px;height:10px;margin-left:-1px;border-radius:1px;background:var(--speed-focus);opacity:.6}
+.speed-word::before{top:0}.speed-word::after{bottom:0}
 .speed-word #speedBefore{text-align:right}.speed-word #speedAfter{text-align:left}
-.speed-word #speedPivot{color:var(--accent);font-weight:700}
+.speed-word #speedPivot{color:var(--speed-focus);font-weight:700}
 .speed-word .speed-before,.speed-word .speed-after{white-space:pre}
 .speed-status{text-align:center;color:var(--muted);font:14px/1.4 var(--ui);min-height:18px;margin:0}
 .speed-controls{width:min(100%,760px);margin:0 auto;padding-bottom:8px}
@@ -819,14 +830,18 @@ body.is-pdf #dictFloat{display:none!important}
         <button id="speedClose" class="speed-close" aria-label="Exit speed reading" title="Exit speed reading">×</button>
         <select id="speedChapterSelect" aria-label="Chapter"></select>
         <select id="speedWpmSelect" aria-label="Reading speed"></select>
+        <button id="speedStyleBtn" class="speed-style-btn" aria-label="Colour and context" title="Colour and context" aria-expanded="false" aria-controls="speedStylePanel">◐</button>
       </header>
-      <section id="speedContext" class="speed-context" aria-label="Reading context">
-        <div class="speed-context-head"><b>Context</b><button id="speedContextToggle" aria-label="Collapse context" title="Collapse context">⌃</button></div>
-        <div class="speed-context-text" id="speedContextText"></div>
-      </section>
+      <div id="speedStylePanel" class="speed-style-panel hidden" role="group" aria-label="Speed reading style">
+        <h3>Focus colour</h3>
+        <div class="speed-swatches" id="speedSwatches"></div>
+        <div class="speed-style-row"><span>Custom colour</span><input id="speedColorInput" type="color" aria-label="Custom focus colour" value="#d97757"></div>
+        <div class="speed-style-row"><span>Two lines of context</span><button id="speedCtxToggle" type="button" role="switch" aria-checked="true">On</button></div>
+      </div>
       <main class="speed-stage">
-        <div class="speed-step" id="speedStep" aria-hidden="true">1</div>
+        <div class="speed-ctx speed-ctx-before" id="speedCtxBefore" aria-hidden="true"></div>
         <div class="speed-word" aria-live="polite"><span id="speedBefore"></span><span id="speedPivot"></span><span id="speedAfter"></span></div>
+        <div class="speed-ctx speed-ctx-after" id="speedCtxAfter" aria-hidden="true"></div>
         <p class="speed-status" id="speedStatus" role="status" aria-live="polite"></p>
       </main>
       <footer class="speed-controls">
@@ -1114,11 +1129,9 @@ const TTSAudioCache = (() => {
     });
   }
   return {
-    get(id) { return tx('readwrite', store => {
-      const request = store.get(id);
-      request.onsuccess = () => { if (request.result) store.put(Object.assign({}, request.result, { lastUsed: Date.now() })); };
-      return request;
-    }); },
+    /* Read only. It used to write the whole entry (audio Blob included) back to refresh lastUsed on every hit; on Safari
+       re-putting a Blob that came out of IndexedDB can fail or corrupt it, which showed up as playback errors. */
+    get(id) { return tx('readonly', store => store.get(id)); },
     put(entry) { return tx('readwrite', store => {
       const request = store.put(entry);
       request.onsuccess = () => {
@@ -3652,8 +3665,13 @@ const TTS = {
     if (cacheId) {
       try {
         const cached = await TTSAudioCache.get(cacheId);
-        if (cached && cached.text === text && cached.voice === voice) { this.logEv('edge-cache-hit', cacheId); return { blob: cached.audio, boundaries: cached.boundaries || [] }; }
-      } catch (e) { this.logEv('edge-cache-read-failed', e.message); }
+        if (cached && cached.text === text && cached.voice === voice) {
+          // Read the bytes now. Safari can hold a cache entry whose Blob file is gone ("The object can not be found here");
+          // that must fall through to the network instead of failing playback.
+          const bytes = await cached.audio.arrayBuffer();
+          if (bytes.byteLength > 500) { this.logEv('edge-cache-hit', cacheId); return { blob: new Blob([bytes], { type: cached.audio.type || 'audio/mpeg' }), boundaries: cached.boundaries || [] }; }
+        }
+      } catch (e) { this.logEv('edge-cache-read-failed', e.name + ': ' + e.message); }
     }
     const endpoint = edgeProxyUrl();
     if (!endpoint) throw new Error('Add your Edge TTS Worker URL in audio settings');
@@ -3746,7 +3764,16 @@ const TTS = {
       if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
       if (result.error) throw result.error;
       const ctx = await this.getEdgeAudioContext();
-      const decoded = await ctx.decodeAudioData(await result.blob.arrayBuffer());
+      let bytes;
+      try { bytes = await result.blob.arrayBuffer(); }
+      catch (e) {
+        // A downloaded or cached Blob that can no longer be read: ask the service again (no cache, no downloads).
+        this.logEv('edge-blob-unreadable', e.name + ': ' + e.message);
+        const fresh = await this.edgeAudio(request.text, request.controller.signal, null, { rate: this.edgeChunkRequest(this.model, i, request.from).rate, pitch: this.edgeChunkRequest(this.model, i, request.from).pitch });
+        result.boundaries = fresh.boundaries; result.from = request.from; result.text = request.text;
+        bytes = await fresh.blob.arrayBuffer();
+      }
+      const decoded = await ctx.decodeAudioData(bytes);
       if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
       const trimmed = this.trimEdgeSilence(ctx, decoded);
       const from = result.from != null ? result.from : request.from, text = result.text || request.text;
@@ -3894,6 +3921,14 @@ const TTS = {
       this.prefetchEdgeChunk(i + 2, tk);
     } catch (err) {
       if (tk !== this.token || err.name === 'AbortError') return;
+      this.logEv('edge-error-detail', err.name + ': ' + err.message + ' @ ' + String(err.stack || '').split(String.fromCharCode(10))[0]);
+      // One quiet retry for anything that is not a rate limit (an unreadable cached file, a dropped connection),
+      // so a single bad chunk does not pause the book.
+      if (!err.rateLimited && this.edgeRetried !== tk + ':' + i) {
+        this.edgeRetried = tk + ':' + i;
+        this.edgeRequests.delete(i); this.edgeReady.delete(i);
+        return this.speakChunkEdge(i, from, tk);
+      }
       this.edgeError(i, from, tk, err.message, err.rateLimited);
     }
   },
@@ -5422,7 +5457,7 @@ const AutoScroll = {
 };
 const SpeedReader = {
   active: false, playing: false, hasStarted: false, words: [], durationUnits: [], index: 0, chapter: 0, timer: 0, generation: 0,
-  wpm: clamp(LS.get('reader.speed.wpm', 450), 100, 1200), sourceText: '', lastLoc: null, startLocation: null, contextCollapsed: false, lastSavedAt: 0, corePromise: null,
+  wpm: clamp(LS.get('reader.speed.wpm', 450), 100, 1200), sourceText: '', lastLoc: null, startLocation: null, lastSavedAt: 0, corePromise: null,
   async loadChapter(ch, offset, generation) {
     const core = await (this.corePromise || (this.corePromise = import('./build/speed-reader-core.js').catch(error => {
       this.corePromise = null;
@@ -5519,6 +5554,7 @@ const SpeedReader = {
       if (generation !== this.generation || !this.active) return;
       if (!found) { $('#speedStatus').textContent = 'No readable text was found in this book.'; return; }
       this.hasStarted = true;
+      $('#speedStatus').textContent = '';
       this.lastLoc = this.currentLocation();
       await App.goTo(this.lastLoc);
       this.playing = true; this.render(); this.schedule();
@@ -5542,16 +5578,39 @@ const SpeedReader = {
     LS.set(this.positionKey(), { ch: loc.ch, off: loc.off >= 0 ? loc.off : 0, frac: loc.frac || 0 });
     this.lastLoc = loc;
   },
+  /* Two lines of text before and after the word (the word itself stays in the middle). */
   renderContext(word) {
-    const radius = 240, start = Math.max(0, word.textStart - radius), end = Math.min(this.sourceText.length, word.textStart + word.word.length + radius);
-    const before = this.sourceText.slice(start, word.textStart);
-    const selected = this.sourceText.slice(word.textStart, word.textStart + word.word.length);
-    const after = this.sourceText.slice(word.textStart + word.word.length, end);
-    $('#speedContextText').innerHTML = esc(before) + '<mark>' + esc(selected) + '</mark>' + esc(after);
-    $('#speedContextText').classList.toggle('hidden', this.contextCollapsed);
-    $('#speedContextToggle').textContent = this.contextCollapsed ? '⌄' : '⌃';
-    $('#speedContextToggle').setAttribute('aria-label', this.contextCollapsed ? 'Expand context' : 'Collapse context');
+    const t = this.sourceText, from = word.textStart, to = from + word.word.length, R = 200;
+    const tidy = x => x.replace(/\s+/g, ' ');
+    let before = tidy(t.slice(Math.max(0, from - R), from)), after = tidy(t.slice(to, to + R));
+    if (from - R > 0) before = before.replace(/^\S*\s/, '');           // do not start in the middle of a word
+    if (to + R < t.length) after = after.replace(/\s\S*$/, '');
+    $('#speedCtxBefore').textContent = before; $('#speedCtxAfter').textContent = after;
   },
+  styleKey: 'reader.speed.style', style: { color: '', ctx: true },
+  SWATCHES: [['', 'Theme accent'], ['#d97757', 'Orange'], ['#ff453a', 'Red'], ['#ffd60a', 'Yellow'], ['#30d158', 'Green'], ['#64d2ff', 'Cyan'], ['#0a84ff', 'Blue'], ['#bf5af2', 'Violet']],
+  loadStyle() {
+    const s = LS.get(this.styleKey, {}) || {};
+    this.style = { color: /^#[0-9a-f]{6}$/i.test(s.color || '') ? s.color : '', ctx: s.ctx !== false };
+    const box = $('#speedSwatches');
+    if (!box.children.length) this.SWATCHES.forEach(([c, name]) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'speed-sw'; b.dataset.color = c; b.setAttribute('aria-label', name); b.title = name;
+      b.style.background = c || 'var(--accent)';
+      b.addEventListener('click', () => this.setStyle({ color: c }));
+      box.appendChild(b);
+    });
+    this.applyStyle();
+  },
+  applyStyle() {
+    const root = $('#speedReader');
+    if (this.style.color) root.style.setProperty('--speed-focus', this.style.color); else root.style.removeProperty('--speed-focus');
+    ['#speedCtxBefore', '#speedCtxAfter'].forEach(sel => $(sel).classList.toggle('off', !this.style.ctx));
+    $$('#speedSwatches .speed-sw').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.color === this.style.color)));
+    if (this.style.color) $('#speedColorInput').value = this.style.color;
+    const sw = $('#speedCtxToggle'); sw.setAttribute('aria-checked', String(this.style.ctx)); sw.textContent = this.style.ctx ? 'On' : 'Off';
+  },
+  setStyle(patch) { Object.assign(this.style, patch); LS.set(this.styleKey, this.style); this.applyStyle(); },
   render() {
     const word = this.words[this.index];
     if (!word) {
@@ -5562,11 +5621,12 @@ const SpeedReader = {
     }
     $('#speedPlay').disabled = false;
     $('#speedProgress').disabled = false;
-    const pivot = Math.min(word.word.length - 1, Math.floor((word.word.length - 1) * 0.35));
+    // optimal recognition point: the letter the eye should rest on, by word length; long words shrink to fit
+    const L = word.word.length, pivot = Math.min(L - 1, L <= 1 ? 0 : L <= 5 ? 1 : L <= 9 ? 2 : L <= 13 ? 3 : 4);
+    document.querySelector('.speed-word').style.setProperty('--sw', String(L > 10 ? Math.max(0.5, 10 / L) : 1));
     $('#speedBefore').textContent = word.word.slice(0, pivot);
     $('#speedPivot').textContent = word.word.slice(pivot, pivot + 1);
     $('#speedAfter').textContent = word.word.slice(pivot + 1) + word.punctuation;
-    $('#speedStep').textContent = '1';
     $('#speedChapterSelect').value = String(this.chapter);
     this.renderContext(word);
     const remaining = this.durationUnits[this.index] * 60 / this.wpm;
@@ -5694,7 +5754,10 @@ const SpeedReader = {
     $('#speedProgress').addEventListener('input', e => this.seek(+e.target.value));
     $('#speedWpmSelect').addEventListener('change', e => this.setRate(+e.target.value, true));
     $('#speedChapterSelect').addEventListener('change', e => this.selectChapter(+e.target.value));
-    $('#speedContextToggle').addEventListener('click', () => { this.contextCollapsed = !this.contextCollapsed; if (this.words.length) this.renderContext(this.words[this.index]); });
+    $('#speedStyleBtn').addEventListener('click', () => { const open = $('#speedStylePanel').classList.toggle('hidden') === false; $('#speedStyleBtn').setAttribute('aria-expanded', String(open)); });
+    $('#speedColorInput').addEventListener('input', e => this.setStyle({ color: e.target.value }));
+    $('#speedCtxToggle').addEventListener('click', () => this.setStyle({ ctx: !this.style.ctx }));
+    this.loadStyle();
     $('#speedStartChooser').addEventListener('click', e => {
       const choice = e.target.closest('[data-speed-start]');
       if (choice && !choice.disabled) this.chooseStart(choice.dataset.speedStart);

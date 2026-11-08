@@ -133,7 +133,7 @@ button.v2-li:active,button.v2-li:hover{background:var(--v2-surface)}
 .v2-menu hr{border:0;border-top:1px solid var(--v2-line);margin:4px 6px}
 
 /* Toast */
-.v2-toast{position:fixed;left:50%;bottom:calc(var(--sab) + 24px);z-index:var(--z-toast);transform:translateX(-50%);max-width:min(440px,calc(100vw - 32px));
+.v2-toast{position:fixed;left:50%;bottom:calc(var(--bottom-chrome-height,var(--sab)) + 16px);z-index:var(--z-toast);transform:translateX(-50%);max-width:min(440px,calc(100vw - 32px));
   box-sizing:border-box;padding:12px 18px;border-radius:var(--v2-r-lg);background:var(--v2-toast-bg);color:var(--v2-toast-fg);font:500 var(--v2-t-sm)/1.4 var(--v2-sans);
   box-shadow:var(--v2-shadow-2);pointer-events:none;opacity:0;transition:opacity var(--v2-d-base),transform var(--v2-d-base) var(--v2-ease)}
 .v2-toast.on{opacity:1;transform:translate(-50%,-4px)}

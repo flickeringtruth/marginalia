@@ -26,8 +26,59 @@ export function syncThemeColor(where) {
     }
     put(BAR[t]);
 }
+const PAGE_PROPS = ['--app-bg', '--app-surface', '--app-raised', '--app-border', '--app-text', '--app-muted', '--app-accent-text', '--app-danger', '--app-ok'];
+let pageKey = '';
+function parseColor(v, fallback) {
+    const s = v.trim(), hex = /^#([0-9a-f]{6})$/i.exec(s);
+    if (hex)
+        return [0, 2, 4].map(i => parseInt(hex[1].slice(i, i + 2), 16));
+    const m = /^rgba?\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/i.exec(s);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : fallback;
+}
+const mix = (a, b, t) => [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * t));
+const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+const css = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+/** Moves `from` towards `to` until it reads at 4.5:1 or better on every background. */
+function readable(from, to, backs) {
+    for (let t = 0; t <= 1.001; t += 0.04) {
+        const c = mix(from, to, t);
+        if (backs.every(b => ratio(c, b) >= 4.6))
+            return c;
+    }
+    return to;
+}
+export function applyPageTokens() {
+    const root = document.documentElement;
+    if (appTheme() !== 'page') {
+        if (pageKey) {
+            PAGE_PROPS.forEach(p => root.style.removeProperty(p));
+            pageKey = '';
+        }
+        return;
+    }
+    const cs = getComputedStyle(root);
+    const bg = parseColor(cs.getPropertyValue('--bg'), [255, 255, 255]), fg = parseColor(cs.getPropertyValue('--fg'), [29, 29, 31]);
+    const sheet = parseColor(cs.getPropertyValue('--sheet'), bg);
+    const key = [bg, fg, sheet].join('|');
+    if (key === pageKey)
+        return;
+    pageKey = key;
+    const raised = mix(sheet, fg, 0.05), backs = [bg, sheet, raised];
+    const set = (k, c) => root.style.setProperty(k, css(c));
+    set('--app-bg', bg);
+    set('--app-surface', sheet);
+    set('--app-raised', raised);
+    set('--app-border', mix(bg, fg, 0.18));
+    set('--app-text', fg);
+    set('--app-muted', readable(mix(bg, fg, 0.55), fg, backs));
+    set('--app-accent-text', fg);
+    set('--app-danger', readable([229, 55, 43], fg, backs));
+    set('--app-ok', fg);
+}
 export function setAppTheme(t) {
     document.documentElement.setAttribute('data-app-theme', t);
+    applyPageTokens();
     try {
         localStorage.setItem(KEY, t);
     }
@@ -54,8 +105,9 @@ export function mountTheme() {
     new MutationObserver(() => {
         if (appTheme() !== 'page' || pending)
             return;
-        pending = requestAnimationFrame(() => { pending = 0; document.dispatchEvent(new CustomEvent('v2:theme', { detail: 'page' })); });
+        pending = requestAnimationFrame(() => { pending = 0; applyPageTokens(); document.dispatchEvent(new CustomEvent('v2:theme', { detail: 'page' })); });
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    applyPageTokens();
     syncThemeColor(screen());
     document.addEventListener('reader:screen', e => syncThemeColor(e.detail.screen));
 }

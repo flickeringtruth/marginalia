@@ -71,9 +71,10 @@ export function pageInfo(): PageInfo | null {
 export function barLabel(): string | null {
   const R = reader(), p = R.App.progress, pi = pageInfo();
   if (!p) return null;
-  const parts = [pi ? 'Page ' + pi.page.toLocaleString() + ' of ' + pi.total.toLocaleString() : '', Math.round(p.pct * 100) + '%'];
+  const narrow = window.innerWidth < 440;   // phones: "Page 10/25 · 35% · 1 min left" fits on one line, the long form wraps to two
+  const parts = [pi ? (narrow ? 'Page ' + pi.page.toLocaleString() + '/' + pi.total.toLocaleString() : 'Page ' + pi.page.toLocaleString() + ' of ' + pi.total.toLocaleString()) : '', Math.round(p.pct * 100) + '%'];
   const t = timeLeft();
-  if (t) parts.push(fmtDuration(t.chapter) + ' left in chapter');
+  if (t) parts.push(fmtDuration(t.chapter) + (narrow ? ' left' : ' left in chapter'));
   return parts.filter(Boolean).join(' · ');
 }
 
