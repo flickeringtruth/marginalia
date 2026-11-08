@@ -4,13 +4,14 @@
    (it sets data-app-theme from localStorage before any CSS paints, so nothing flashes);
    this module only changes the theme afterwards and keeps <meta name="theme-color"> in step. */
 
-export type AppTheme = 'dark' | 'light';
+export type AppTheme = 'dark' | 'light' | 'page';   // 'page' = match the reading page theme
 const KEY = 'marginalia.appTheme';
-const BAR: Record<AppTheme, string> = { dark: '#1f1e1d', light: '#faf9f5' };   // the --app-bg values
+const BAR: Record<'dark' | 'light', string> = { dark: '#1f1e1d', light: '#faf9f5' };   // the --app-bg values
 let readerColor: string | null = null, lastPut = '';
 
 export function appTheme(): AppTheme {
-  return document.documentElement.getAttribute('data-app-theme') === 'light' ? 'light' : 'dark';
+  const t = document.documentElement.getAttribute('data-app-theme');
+  return t === 'light' || t === 'page' ? t : 'dark';
 }
 
 const meta = (): HTMLMetaElement | null => document.querySelector<HTMLMetaElement>('meta[name=theme-color]');
@@ -19,8 +20,9 @@ function put(color: string): void { const m = meta(); if (m) { lastPut = color; 
 
 /** Browser UI colour: the app background on app screens, the engine's (reading theme) colour in the book. */
 export function syncThemeColor(where: string): void {
-  if (where === 'reader') { if (readerColor) put(readerColor); return; }
-  put(BAR[appTheme()]);
+  const t = appTheme();
+  if (where === 'reader' || t === 'page') { if (readerColor) put(readerColor); return; }
+  put(BAR[t]);
 }
 
 export function setAppTheme(t: AppTheme): void {
@@ -38,8 +40,15 @@ export function mountTheme(): void {
     const c = m.getAttribute('content');
     if (!c || c === lastPut) return;
     readerColor = c;
-    if (screen() !== 'reader') put(BAR[appTheme()]);
+    const t = appTheme();
+    if (screen() !== 'reader' && t !== 'page') put(BAR[t]);
   }).observe(m, { attributes: true, attributeFilter: ['content'] });
+  // "Match page": the engine rewrites --bg, --fg… on <html> when the reading theme changes. Tell the flux canvas (it caches colours).
+  let pending = 0;
+  new MutationObserver(() => {
+    if (appTheme() !== 'page' || pending) return;
+    pending = requestAnimationFrame(() => { pending = 0; document.dispatchEvent(new CustomEvent('v2:theme', { detail: 'page' })); });
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
   syncThemeColor(screen());
   document.addEventListener('reader:screen', e => syncThemeColor(e.detail.screen));
 }

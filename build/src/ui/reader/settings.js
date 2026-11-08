@@ -95,7 +95,7 @@ function appearance(redraw) {
     const toggle = (label, key) => Toggle({ label, checked: !!S[key], onChange: v => set(key, v, key === 'layout') });
     const out = [];
     // App look: the chrome (library, Discover, sheets). Separate from the reading page theme below.
-    out.push(grp('App', h('div', {}, lab('App theme'), Segmented({ label: 'App theme', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], value: appTheme(), onChange: v => setAppTheme(v) })), Toggle({ label: 'Animated background', checked: fluxEnabled(), onChange: v => setFluxEnabled(v) }), hint('The app theme colours the library, Discover and menus. It does not change the page you read on; that is set under Reading page theme.')));
+    out.push(grp('App', h('div', {}, lab('App theme'), Segmented({ label: 'App theme', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }, { value: 'page', label: 'Match page' }], value: appTheme(), onChange: v => setAppTheme(v) })), Toggle({ label: 'Animated background', checked: fluxEnabled(), onChange: v => setFluxEnabled(v) }), hint('Dark and Light colour the library, Discover and menus. Match page uses the reading theme below everywhere; picking a reading theme turns it on.')));
     const size = h('output', { text: S.fontSize + ' px' });
     out.push(grp('Text', isPdf ? null : h('div', { class: 'size' }, IconButton({ label: 'Smaller text', icon: 'text-smaller', filled: true, onClick: () => set('fontSize', Math.max(12, S.fontSize - 1)) }), size, IconButton({ label: 'Larger text', icon: 'text-larger', filled: true, onClick: () => set('fontSize', Math.min(36, S.fontSize + 1)) })), slider('Brightness', 'brightness', 0.3, 1, 0.01, v => Math.round(v * 100) + '%')));
     // themes
@@ -112,7 +112,8 @@ function appearance(redraw) {
             sw.style.color = t.fg;
         }
         const b = h('button', { type: 'button', role: 'radio', class: 'v2-theme', 'aria-checked': String(S.theme === t.key), 'aria-label': t.label + ' theme' }, sw, h('span', { 'aria-hidden': 'true', text: t.label }));
-        b.addEventListener('click', () => set('theme', t.key));
+        // choosing a reading theme means "use this look": the whole app follows it until Dark or Light is picked again
+        b.addEventListener('click', () => { setAppTheme('page'); set('theme', t.key); });
         return b;
     }));
     const extra = [];

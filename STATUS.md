@@ -189,3 +189,10 @@
 - **The flux canvas was opaque black until its first frame**, a dark flash on light themes at start-up. It is now invisible until it has painted, then fades in (`src/ui/flux.ts`).
 - New e2e tests cover all three. Reader controls 76/76 again; e2e 60 passed, 8 skipped by design.
 - Not changed: reading themes still colour only the book page (the library no longer changes with them, since the app theme replaced that).
+
+## Reading themes drive the whole app again (2026-11-08)
+
+- **Cause of "reading themes don't work":** they only coloured the book page after the app theme was added, so picking Sepia or Night left the library, Discover and sheets unchanged.
+- **Fix:** the app theme has a third choice, **Match page**. Picking any reading theme switches to it automatically, so the library, Discover, sheets, dialogs, flux tint and browser bar all wear that theme; Dark or Light switch back. Remembered in `marginalia.appTheme` (`page`). Tokens in `index.html` `<head>`, logic in `src/ui/theme.ts`, flux reads the real background (`src/ui/flux.ts`).
+- Text, muted, accent-text and danger colours pass AA on background, surface and raised for all 7 reading themes (computed in a test).
+- Known: with Match page and a dark reading theme the first paint can be light for a moment on cold start (the theme variables are written once the engine boots). Dark and Light have no flash.

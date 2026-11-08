@@ -7,7 +7,8 @@ const KEY = 'marginalia.appTheme';
 const BAR = { dark: '#1f1e1d', light: '#faf9f5' }; // the --app-bg values
 let readerColor = null, lastPut = '';
 export function appTheme() {
-    return document.documentElement.getAttribute('data-app-theme') === 'light' ? 'light' : 'dark';
+    const t = document.documentElement.getAttribute('data-app-theme');
+    return t === 'light' || t === 'page' ? t : 'dark';
 }
 const meta = () => document.querySelector('meta[name=theme-color]');
 const screen = () => (window.__reader ? window.__reader.App.screen : 'library');
@@ -17,12 +18,13 @@ function put(color) { const m = meta(); if (m) {
 } }
 /** Browser UI colour: the app background on app screens, the engine's (reading theme) colour in the book. */
 export function syncThemeColor(where) {
-    if (where === 'reader') {
+    const t = appTheme();
+    if (where === 'reader' || t === 'page') {
         if (readerColor)
             put(readerColor);
         return;
     }
-    put(BAR[appTheme()]);
+    put(BAR[t]);
 }
 export function setAppTheme(t) {
     document.documentElement.setAttribute('data-app-theme', t);
@@ -43,9 +45,17 @@ export function mountTheme() {
             if (!c || c === lastPut)
                 return;
             readerColor = c;
-            if (screen() !== 'reader')
-                put(BAR[appTheme()]);
+            const t = appTheme();
+            if (screen() !== 'reader' && t !== 'page')
+                put(BAR[t]);
         }).observe(m, { attributes: true, attributeFilter: ['content'] });
+    // "Match page": the engine rewrites --bg, --fg… on <html> when the reading theme changes. Tell the flux canvas (it caches colours).
+    let pending = 0;
+    new MutationObserver(() => {
+        if (appTheme() !== 'page' || pending)
+            return;
+        pending = requestAnimationFrame(() => { pending = 0; document.dispatchEvent(new CustomEvent('v2:theme', { detail: 'page' })); });
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
     syncThemeColor(screen());
     document.addEventListener('reader:screen', e => syncThemeColor(e.detail.screen));
 }
