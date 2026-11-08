@@ -145,3 +145,45 @@ test('the flux canvas stays invisible until it has painted a frame (no black fla
   expect(await page.evaluate(() => getComputedStyle(document.querySelector('#v2-library canvas.v2-flux')).opacity)).toBe('0');
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.querySelector('#v2-library canvas.v2-flux')).opacity), { timeout: 8000 }).toBe('1');
 });
+
+test('picking a reading theme makes the whole app match it, and Dark/Light take over again', async ({ page, app }) => {
+  await app.importBook(false);
+  await app.openSettings('look');
+  await page.locator('.v2-theme', { hasText: 'Sepia' }).click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.appTheme)).toBe('page');
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(248, 241, 227)');
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('.v2-sheet')).backgroundColor), 'sheets wear the page theme too').not.toBe('rgb(43, 42, 40)');
+  expect(await page.evaluate(() => localStorage.getItem('marginalia.appTheme'))).toBe('page');
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(31, 30, 29)');
+  // remembered across a reload
+  await page.getByRole('radio', { name: 'Match page', exact: true }).click();
+  await page.reload();
+  await page.waitForFunction(() => window.__reader);
+  expect(await page.evaluate(() => document.documentElement.dataset.appTheme)).toBe('page');
+});
+
+test('with Match page, text stays readable (WCAG AA) in every reading theme', async ({ page, app }) => {
+  await app.importBook(false);
+  await app.openSettings('look');
+  const count = await page.locator('.v2-theme').count();
+  expect(count).toBeGreaterThanOrEqual(5);
+  for (let i = 0; i < count; i++) {
+    await page.locator('.v2-theme').nth(i).click();
+    await page.waitForTimeout(350);
+    const low = await page.evaluate(() => {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 1;
+      const cx = cv.getContext('2d', { willReadFrequently: true });
+      const rgb = name => { const d = document.createElement('i'); d.style.color = `var(${name})`; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = c; cx.fillRect(0, 0, 1, 1); return [...cx.getImageData(0, 0, 1, 1).data.slice(0, 3)]; };
+      const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const ratio = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      const out = [];
+      for (const fg of ['--app-text', '--app-muted', '--app-accent-text', '--app-danger']) for (const bg of ['--app-bg', '--app-surface', '--app-raised']) {
+        if (fg === '--app-danger' && bg === '--app-bg') continue;
+        const r = ratio(fg, bg); if (r < 4.5) out.push(`${fg} on ${bg} ${r.toFixed(2)}`);
+      }
+      return out;
+    });
+    expect(low, `theme #${i}`).toEqual([]);
+  }
+});

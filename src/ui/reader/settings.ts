@@ -95,9 +95,9 @@ function appearance(redraw: () => void): Node[] {
   const out: Node[] = [];
   // App look: the chrome (library, Discover, sheets). Separate from the reading page theme below.
   out.push(grp('App',
-    h('div', {}, lab('App theme'), Segmented<AppTheme>({ label: 'App theme', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], value: appTheme(), onChange: v => setAppTheme(v) })),
+    h('div', {}, lab('App theme'), Segmented<AppTheme>({ label: 'App theme', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }, { value: 'page', label: 'Match page' }], value: appTheme(), onChange: v => setAppTheme(v) })),
     Toggle({ label: 'Animated background', checked: fluxEnabled(), onChange: v => setFluxEnabled(v) }),
-    hint('The app theme colours the library, Discover and menus. It does not change the page you read on; that is set under Reading page theme.')));
+    hint('Dark and Light colour the library, Discover and menus. Match page uses the reading theme below everywhere; picking a reading theme turns it on.')));
   const size = h('output', { text: S.fontSize + ' px' });
   out.push(grp('Text',
     isPdf ? null : h('div', { class: 'size' },
@@ -112,7 +112,8 @@ function appearance(redraw: () => void): Node[] {
     const sw = h('span', { class: 'sw', 'aria-hidden': 'true', text: 'Aa' });
     if (t.key === 'gradient') { sw.style.backgroundImage = gi.image; sw.style.color = hex(gi.fg); } else { sw.style.background = t.bg; sw.style.color = t.fg; }
     const b = h('button', { type: 'button', role: 'radio', class: 'v2-theme', 'aria-checked': String(S.theme === t.key), 'aria-label': t.label + ' theme' }, sw, h('span', { 'aria-hidden': 'true', text: t.label }));
-    b.addEventListener('click', () => set('theme', t.key));
+    // choosing a reading theme means "use this look": the whole app follows it until Dark or Light is picked again
+    b.addEventListener('click', () => { setAppTheme('page'); set('theme', t.key); });
     return b;
   }));
   const extra: Node[] = [];

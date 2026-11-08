@@ -36,14 +36,19 @@ export function setFluxEnabled(on) {
     document.documentElement.setAttribute('data-flux', on ? 'on' : 'off');
     update();
 }
+/** Reads "#rrggbb", "rgb(r,g,b)" or "rgba(…)" (the engine writes reading-theme colours as rgb()). */
 const parse = (v, fallback) => {
-    const m = /^#?([0-9a-f]{6})$/i.exec(v.trim());
-    return m ? [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16)) : fallback;
+    const s = v.trim(), hex = /^#?([0-9a-f]{6})$/i.exec(s);
+    if (hex)
+        return [0, 2, 4].map(i => parseInt(hex[1].slice(i, i + 2), 16));
+    const rgb = /^rgba?\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/i.exec(s);
+    return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : fallback;
 };
 function readColors() {
     const cs = getComputedStyle(document.documentElement);
-    const light = document.documentElement.getAttribute('data-app-theme') === 'light';
-    colors = { bg: parse(cs.getPropertyValue('--app-bg'), [31, 30, 29]), tint: parse(cs.getPropertyValue('--app-accent'), [217, 119, 87]), k: light ? 0.1 : 0.12 };
+    const bg = parse(cs.getPropertyValue('--app-bg'), [31, 30, 29]);
+    const light = bg[0] * 0.299 + bg[1] * 0.587 + bg[2] * 0.114 > 140; // by the actual background, so "match page" works for any reading theme
+    colors = { bg, tint: parse(cs.getPropertyValue('--app-accent'), [217, 119, 87]), k: light ? 0.1 : 0.12 };
 }
 function size(inst) {
     const r = inst.host.getBoundingClientRect();
