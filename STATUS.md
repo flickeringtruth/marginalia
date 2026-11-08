@@ -181,3 +181,11 @@
 - Not checked: the CI workflow itself has not run on GitHub yet; Firefox is still untested.
 
 **Worker redeploy required: NO.**
+
+## Theme fixes (2026-11-08)
+
+- **Dictionary, Vocabulary, AI chat and the other engine dialogs ignored the app theme** (they kept the reading theme and the engine's blue), so choosing Light left them dark. They now follow the app theme like every other sheet (`src/ui/tokens.ts`). The book page and its floating controls still use the reading theme.
+- **The close "X" in the engine dialogs drew one stroke** (a path typo, 3 places in `index.html`).
+- **The flux canvas was opaque black until its first frame**, a dark flash on light themes at start-up. It is now invisible until it has painted, then fades in (`src/ui/flux.ts`).
+- New e2e tests cover all three. Reader controls 76/76 again; e2e 60 passed, 8 skipped by design.
+- Not changed: reading themes still colour only the book page (the library no longer changes with them, since the app theme replaced that).

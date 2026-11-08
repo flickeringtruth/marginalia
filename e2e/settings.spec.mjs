@@ -116,3 +116,32 @@ test('flux animates at no more than 30 fps, stops when hidden, and is still unde
   await page.waitForTimeout(400);
   expect(await draws(1200), 'still under reduced motion').toBe(0);
 });
+
+test('engine dialogs (dictionary, AI) follow the app theme, not the reading theme', async ({ page, app }) => {
+  await app.importBook(true);
+  await page.evaluate(() => window.__reader.setSetting('theme', 'black'));   // dark page
+  await app.openSettings('look');
+  await page.getByRole('radio', { name: 'Light', exact: true }).click();
+  await app.closeSheet();
+  await page.evaluate(() => window.__reader.dictionaryButton());
+  await expect(page.locator('#dictSheet.open')).toHaveCount(1);
+  await page.waitForTimeout(400);
+  const light = await page.evaluate(() => { const s = getComputedStyle(document.querySelector('#dictSheet')); return [s.backgroundColor, s.color]; });
+  expect(light[0], 'dictionary sheet is the light app surface even with a black page').toBe('rgb(255, 255, 255)');
+  expect(light[1]).toBe('rgb(20, 20, 19)');
+  // every close icon draws a full X (two different strokes)
+  const broken = await page.evaluate(() => [...document.querySelectorAll('button[data-close] path')].map(p => p.getAttribute('d')).filter(d => /M18 18 6 6/.test(d)));
+  expect(broken, 'close icons with a duplicated stroke').toEqual([]);
+});
+
+test('the flux canvas stays invisible until it has painted a frame (no black flash in the light theme)', async ({ page, app, browserName }) => {
+  void app;
+  test.skip(browserName === 'webkit', 'WebKit does not route the dynamic module import, so the delay cannot be forced');
+  await page.evaluate(() => localStorage.setItem('marginalia.appTheme', 'light'));
+  await page.route('**/simplex-noise.js', async route => { await new Promise(r => setTimeout(r, 1200)); await route.continue(); });
+  await page.reload();
+  await page.waitForSelector('#v2-library canvas.v2-flux', { state: 'attached' });
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('#v2-library canvas.v2-flux')).opacity)).toBe('0');
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.querySelector('#v2-library canvas.v2-flux')).opacity), { timeout: 8000 }).toBe('1');
+});

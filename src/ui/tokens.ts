@@ -68,6 +68,12 @@ html.ui-v2 .sheet,html.ui-v2 .drawer,html.ui-v2 .ml-overlay,html.ui-v2 .ml-over2
 html.ui-v2 #loading,html.ui-v2 #nameGate,html.ui-v2 .mlb-overlay{z-index:var(--z-overlay)}
 html.ui-v2 .ml-part{z-index:var(--z-menu)}
 html.ui-v2 #toast{z-index:var(--z-toast)}
+/* The engine's tool screens (dictionary, vocabulary, AI chat, messages, catalog sheets) are dialogs, so they follow the
+   app theme like every other sheet. They read the engine's own variables, so those are re-pointed here; the
+   book page and the reader's floating controls keep the reading theme. */
+html.ui-v2 :is(.sheet,.drawer,.ml-overlay,.ml-over2,.mlu-overlay){--bg:var(--app-bg);--fg:var(--app-text);--muted:var(--app-muted);--line:var(--app-border);
+  --card:var(--app-raised);--sheet:var(--app-surface);--chrome:var(--app-bg);--accent:var(--app-accent);--danger:var(--app-danger)}
+html.ui-v2 :is(.sheet,.drawer,.ml-overlay,.ml-over2,.mlu-overlay) :is(.chips button.on,.dict-tab.on,.wide-btn.primary,.vocab-grade button:last-child,.msg.me,.chat-input button){color:var(--app-on-accent)}
 `;
 
 const FONTS_URL = 'https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap';

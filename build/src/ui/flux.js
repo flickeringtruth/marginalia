@@ -12,7 +12,9 @@ import { addStyle, reduceMotion } from './dom.js';
 const KEY = 'marginalia.flux';
 const NOISE_URL = new URL('../../../vendor/simplex-noise/simplex-noise.js', import.meta.url).href;
 const CSS = `
-.v2-flux{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;display:block;border-radius:inherit}
+.v2-flux{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;display:block;border-radius:inherit;opacity:0;transition:opacity 700ms ease}
+.v2-flux.on{opacity:1}
+@media (prefers-reduced-motion:reduce){.v2-flux{transition:none}}   /* an opaque canvas is black until its first frame, so it stays invisible until then */
 html[data-flux="off"] .v2-flux{display:none}
 .v2-flux-static{background-image:radial-gradient(60% 50% at 18% 12%,color-mix(in srgb,var(--app-accent) 9%,transparent),transparent 70%),radial-gradient(55% 45% at 85% 88%,color-mix(in srgb,var(--app-accent) 6%,transparent),transparent 70%)}
 html[data-flux="off"] .v2-flux-static{background-image:none}
@@ -73,6 +75,10 @@ function draw(inst, now) {
         }
     }
     inst.ctx.putImageData(inst.img, 0, 0);
+    if (!inst.shown) {
+        inst.shown = true;
+        inst.canvas.classList.add('on');
+    }
 }
 function frame(now) {
     raf = 0;
