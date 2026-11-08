@@ -16,6 +16,8 @@ body.immersive #v2-reader .mini-slot{bottom:calc(var(--sab) + 40px)}
 #v2-reader .mini .mid b{font:600 var(--v2-t-sm)/1.2 var(--v2-sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #v2-reader .mini .pbar{display:block;height:3px;border-radius:2px;background:var(--v2-line);overflow:hidden}
 #v2-reader .mini .pbar i{display:block;height:100%;background:var(--v2-accent)}
+.v2-icon.v2spin{animation:v2spin .9s linear infinite}
+@keyframes v2spin{to{transform:rotate(360deg)}}
 #v2-reader .mini .time{flex:none;font:500 var(--v2-t-xs)/1 var(--v2-sans);color:var(--v2-muted);font-variant-numeric:tabular-nums;padding-right:4px}
 #v2-reader .mini .away{flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none}
 #v2-reader .mini .away .v2-btn{min-height:40px;padding:0 12px;font-size:var(--v2-t-sm)}
@@ -78,13 +80,15 @@ export function mountPlayer(chrome, openAudioSettings) {
     sync();
 }
 function setPlay(btn, state) {
-    const playing = state === 'playing' || state === 'loading';
-    const want = playing ? 'pause' : 'play';
+    // 'loading' shows a spinner (nothing is audible yet); 'waiting' (Edge retry backoff) keeps the
+    // pause glyph, since tapping it still cancels the pending playback.
+    const want = state === 'loading' ? 'load' : state === 'playing' || state === 'waiting' ? 'pause' : 'play';
     if (btn.dataset.icon !== want) {
         btn.dataset.icon = want;
         btn.replaceChildren(icon(want));
     }
-    const label = playing ? 'Pause' : 'Play';
+    btn.querySelector('svg')?.classList.toggle('v2spin', want === 'load');
+    const label = want === 'play' ? 'Play' : 'Pause';
     btn.setAttribute('aria-label', label);
     btn.title = label;
 }

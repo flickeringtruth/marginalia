@@ -33,7 +33,7 @@ interface ReaderTocItem { title: string; ch: number; frag?: string; depth?: numb
 interface ReaderHighlight { id: string; ch: number; start: number; end: number; text: string; color: string; t?: number; note?: string }
 interface ReaderProgress { pct: number; label: string; chapter: string; book: string }
 interface ReaderAudioInfo {
-  state: 'idle' | 'loading' | 'playing' | 'paused'; active: boolean; title: string; chapter: string;
+  state: 'idle' | 'loading' | 'playing' | 'paused' | 'waiting'; active: boolean; title: string; chapter: string;
   pct: number; elapsed: string; remaining: string; total: string; rate: number; voice: string; engine: string;
   sleep: string; suspended: boolean; lyricsOpen: boolean; snippet: string;
 }
