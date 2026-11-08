@@ -204,3 +204,28 @@
 - **Text not fitting:** reader titles wrap to two lines; the bottom label uses "Page 10/25 · 35% · 1 min left" on phones and wraps instead of cutting; player buttons wrap; toasts now sit above the bars and mini player (`src/ui/*`, `tokens.ts`).
 - **Speed read:** removed the stray "1"; two dimmed lines of text above and two below the word; the pivot letter is always in the exact middle (standard recognition-point rule by word length) with guide ticks; long words shrink to fit; a Colour button sets the focus colour (8 swatches + custom) and turns the context lines on or off, remembered. Decision: I read "the 1" as the number shown above the word and the context box as "2 lines above and below".
 - e2e: 87 passed, 12 skipped by design; reader controls 76/76. The suite now retries once because WebKit timing checks occasionally flake in parallel.
+
+## TTS transport hardening (2026-11-08, branch `stock-tts`)
+
+**What changed** — read-aloud player reliability under rapid play/pause/skip interaction; no visual changes.
+- `index.html`:
+  - Skip and paragraph jumps coalesce when tapped in quick succession: each tap accumulates on the queued jump's target instead of the stale live position, so five fast “forward 5 s” taps really move 25 s. A jump issued while a chapter model is still loading is queued with its chapter id and replayed by `startModel` instead of being dropped or misapplied to the previous chapter.
+  - `pause()`/`end()` cancel jumps that were still queued; a pause or stop wins over an in-flight cross-chapter jump.
+  - After `speechSynthesis.cancel()`, `speakFrom` waits for the engine's queue to actually drain (`settleSpeech`, bounded ≈300 ms poll) instead of a fixed 80 ms sleep, so Safari/Chrome can no longer drop a `speak()` issued into a still-draining queue (ghost voice, dead transport under rapid toggling).
+  - `getModel` is single-flight: a Play tap and the background prefetch share one chapter build instead of both walking the DOM; opening a new book invalidates in-flight builds.
+  - The Edge highlight ticker runs on a 110 ms timer instead of `requestAnimationFrame`, so highlights and the saved position keep advancing while the tab is in the background (Web Audio keeps playing there).
+  - Switching the Edge voice or service address no longer clears the text models (they are voice-independent): the voice changes without a chapter rebuild.
+  - Edge 429 / transient-error backoff now surfaces as a `waiting` state (`audioInfo().state`; `ReaderAudioInfo` updated) and `waitEdgeRetry` refreshes both players when the hold starts or ends; tapping play/pause still cancels the pending playback.
+  - Saving a custom voice service address flushes the debounced settings save immediately (a discrete commit), removing a race where the saved value was still missing 250 ms after clicking Save.
+- `src/ui/reader/player.ts`: mini and full player show a spinner while `loading` (new `load` icon in `src/ui/icons.ts`); `waiting` keeps the pause glyph. `src/reader-api.d.ts` gained the `'waiting'` state.
+
+**How it was tested** (headless Chromium via Playwright, desktop + iPhone 15 projects)
+- `tsc` zero errors; unit tests 7/7; `build/` regenerated and committed.
+- `voices.spec.mjs` + `reader.spec.mjs`: 24/24, three consecutive runs. The advanced-proxy test previously failed 2 of 4 repeats (it read localStorage inside the 250 ms debounce window); with the flush fix it is deterministic (4/4 with `--repeat-each=4`).
+- Same suites on the pre-fix build reproduced the flake; on unmodified `main` they passed 5/5, which is how the debounce race was isolated.
+
+**Not tested / follow-ups**
+- Real Safari/iOS still needs a device pass for the ghost-voice fix (the settle loop is bounded, so it cannot wedge the transport).
+- A scripted rapid-tap e2e for coalesced skips would lock the behaviour in; added as a suggested follow-up.
+
+**Worker redeploy required: NO**
