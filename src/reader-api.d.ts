@@ -68,10 +68,10 @@ interface ReaderApi {
   Sel: { active: boolean; hlId: string | null; root: HTMLElement | null; ch: number; start: number; end: number };
   A: Record<string, unknown> & { engine: string; edgeVoice: string; edgeProxy: string; cadence: boolean; pitch: number; rate: number; volume: number;
     voiceURI: string; preset: string; voiceLocked: boolean; hlMode: string; trail: string; hlColor: string; autoScroll: boolean; autoNext: boolean;
-    startFrom: string; sleep: number; ambVol: number };
+    startFrom: string; sleep: number; ambVol: number; ambParams: Record<string, Record<string, number>>; ambPreset: string };
   setAudio: (key: string, value: unknown) => void;
   AudioUI: { openLyrics: () => void };
-  Ambient: { kind: string; KINDS: Record<string, string>; start: (kind: string) => void; setVol: (v: number) => void };
+  Ambient: { kind: string; KINDS: Record<string, string>; PRESETS: Record<string, { label: string; kind: string; params: Record<string, number> }>; PARAM_DEFS: Record<string, { key: string; label: string; def: number }[]>; start: (kind: string) => void; stop: () => void; setVol: (v: number) => void; setParam: (kind: string, key: string, v: number) => void; applyPreset: (key: string) => void; param: (kind: string, key: string) => number };
   TTS: {
     ch: number; state: string; edgeChunkRequest: (m: ReaderSpeechModel, i: number) => ReaderChunkRequest;
     toggle: () => void; stop: (ask?: boolean) => Promise<void>; skip: (sec: number) => void; paragraph: (dir: number) => void;

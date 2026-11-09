@@ -215,10 +215,19 @@ function audio(redraw: () => void): Node[] {
     seg('Start from', 'startFrom', [['chapter', 'Chapter start'], ['page', 'Current page']])));
 
   const amb = r.Ambient;
-  out.push(grp('Ambient sound',
-    h('div', { class: 'chips', role: 'group', 'aria-label': 'Ambient sound' }, ...Object.entries(amb.KINDS).map(([k, l]) => Chip({ label: l, pressed: amb.kind === k, onClick: () => { amb.start(k); redraw(); } }))),
-    Slider({ label: 'Ambient volume', min: 0, max: 1, step: 0.01, value: Number(A.ambVol), format: v => Math.round(v * 100) + '%', onInput: v => amb.setVol(v) }),
-    hint('Generated live on your device. Works offline. On iPhone, Silent mode also mutes it.')));
+  const presetChips = h('div', { class: 'chips', role: 'group', 'aria-label': 'Ambient presets' }, ...Object.entries(amb.PRESETS).map(([k, p]) => Chip({ label: p.label, pressed: A.ambPreset === k, attrs: { 'data-amb-preset': k }, onClick: () => { amb.applyPreset(k); redraw(); } }))); 
+  const kindChips = h('div', { class: 'chips', role: 'group', 'aria-label': 'Ambient sound' }, ...Object.entries(amb.KINDS).map(([k, l]) => Chip({ label: l, pressed: amb.kind === k, attrs: { 'data-amb-kind': k }, onClick: () => { amb.start(k); redraw(); } })));
+  const ambParts: HTMLElement[] = [presetChips, kindChips, Slider({ label: 'Ambient volume', min: 0, max: 1, step: 0.01, value: Number(A.ambVol), format: v => Math.round(v * 100) + '%', onInput: v => amb.setVol(v) })];
+  // Per-sound sliders exist only while their sound is active. A drag feeds the live graph;
+  // on release the sheet re-renders so preset chips re-snap (exact match) at rest.
+  for (const d of (amb.PARAM_DEFS[amb.kind] || [])) {
+    const sl = Slider({ label: d.label, min: 0, max: 1, step: 0.01, value: amb.param(amb.kind, d.key), format: v => Math.round(v * 100) + '%', onInput: v => amb.setParam(amb.kind, d.key, v) });
+    sl.setAttribute('data-amb-param', amb.kind + '.' + d.key);
+    sl.querySelector('input')?.addEventListener('change', () => redraw());
+    ambParts.push(sl);
+  }
+  ambParts.push(hint('Generated live on your device. Works offline. Presets pin a mood; moving a slider makes it yours. On iPhone, Silent mode also mutes it.'));
+  out.push(grp('Ambient sound', ...ambParts));
 
   const sleeps: [number, string][] = [[0, 'Off'], [5, '5 min'], [10, '10 min'], [15, '15 min'], [30, '30 min'], [60, '60 min'], [-1, 'End of chapter']];
   const custom = h('input', { class: 'v2-input', type: 'number', min: 1, max: 600, inputmode: 'numeric', placeholder: 'Minutes', 'aria-label': 'Custom sleep minutes' });

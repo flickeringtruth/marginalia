@@ -252,5 +252,24 @@ Fixes, following the readest architecture (studied `BufferedTTSClient`/`TTSContr
 **Not tested / follow-ups**
 - Real device pass recommended (iOS Safari) for the resume path; headless WebKit has no audio engine.
 - Boundaryless chunks (mock audio has none) use a proportional estimate for resume timing; real Edge responses carry boundaries.
+## Session 4: Ambient sound presets + per-sound controls (2026-11-09, branch `d-ambientsounds`)
+
+**What changed**
+- `index.html` (`Ambient`): the four synthesized soundscapes (rain, fireplace, ocean, brown noise) gained per-sound parameters. Rain: **Intensity** (filter brightness) and **Raindrops** (drop rate + loudness); Fireplace: **Crackle** (crackle rate + loudness); Ocean: **Waves** (swell period + depth). Each parameter feeds the running Web Audio graph live — no restart, no audible seam: filter/LFO changes ramp with `setTargetAtTime`, and the rain/fire event schedulers re-read their parameter on every tick. Three named presets pin a mood: **Rainy library** (rain at its tuned defaults), **Fireside** (softer, sparser crackle), **Stormy sea** (faster, deeper swells). A preset stays linked only while its kind's parameters match exactly; moving any slider re-snaps (back to the preset when the values match again) or unlinks. All state (`A.ambParams`, `A.ambPreset`) persists with the existing audio settings. After a reload the persisted selection is restored as chip/slider state only — browsers require a user gesture before sound, so the audio itself never auto-resumes. At their defaults all four sounds play exactly as before (defaults reproduce the old filter/LFO/event values bit-for-bit).
+- `src/ui/reader/settings.ts`: the Ambient sound group now shows a preset chip row (Rainy library / Fireside / Stormy sea) above the existing kind chips, and one `v2` `Slider` per active sound's parameters (only while that sound is on). A slider drag feeds the live graph on every `input`; on release (`change`) the sheet re-renders so preset chips re-snap at rest. No new CSS: everything uses the existing v2 Chip/Slider components and tokens.
+- `src/ui/components.ts`: `Chip` accepts optional extra `attrs` (data attributes for tests); purely additive.
+- `src/reader-api.d.ts`: typed the new `Ambient` surface and `A.ambParams`/`A.ambPreset`.
+- `e2e/ambient.spec.mjs` (new): a preset chip applies its mood and starts that sound; moving a slider customizes the mood, breaks the preset link, and the value survives a reload; switching to Off stops the sound and removes the per-sound sliders.
+
+**How it was tested**
+- `npm run build`: zero errors; unit tests 7/7; inline engine script passes `node --check`.
+- New spec: 6/6 (Chromium desktop + iPhone 15), deterministic `--repeat-each=4` → 24/24.
+- Live-graph check: parameter changes ramp into the running graph (`setTargetAtTime`) and event schedulers re-read params per tick — no restart, no seam.
+- Reload: chips/sliders reflect the persisted mood; audio stays silent until the next user gesture (autoplay policy, by design).
+
+**Not tested / follow-ups**
+- Real iOS Safari pass recommended (silent-switch behaviour is already hinted in the UI).
+- Ducking the ambience while TTS speaks (deliberately out of scope; Ambient and TTS intentionally share nothing).
+- Multi-sound layering (rain + fire together) would need the single-kind model generalized to layers.
 
 **Worker redeploy required: NO**

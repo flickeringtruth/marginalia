@@ -177,6 +177,9 @@ export function IconButton(o) {
 /** A filter chip: a toggle button with aria-pressed. */
 export function Chip(o) {
     const b = h('button', { type: 'button', class: 'v2-chip', 'aria-pressed': String(!!o.pressed) });
+    if (o.attrs)
+        for (const [k, v] of Object.entries(o.attrs))
+            b.setAttribute(k, v);
     if (o.icon)
         b.appendChild(icon(o.icon));
     b.appendChild(h('span', { text: o.label }));
