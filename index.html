@@ -1033,7 +1033,7 @@ function renderChatMarkdown(value) {
   closeList();
   return blocks.join('');
 }
-function debounce(fn, ms) { let t = null, last = []; const f = (...a) => { last = a; clearTimeout(t); t = setTimeout(() => { t = null; fn(...last); }, ms); }; f.flush = () => { if (t !== null) { clearTimeout(t); t = null; fn(...last); } }; return f; }
+function debounce(fn, ms) { let t = null, last = []; const f = (...a) => { last = a; clearTimeout(t); t = setTimeout(() => { t = null; fn(...last); }, ms); }; f.flush = () => { if (t !== null) { clearTimeout(t); t = null; fn(...last); } }; f.cancel = () => { if (t !== null) { clearTimeout(t); t = null; } }; return f; }
 function hashStr(s) { let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
 class UserError extends Error {}
@@ -3310,7 +3310,7 @@ function rangeRectsFor(map, s, e) {
 const TTS = {
   state: 'idle',            // idle | loading | playing | paused
   model: null, models: new Map(), modelJobs: new Map(), ch: -1, pos: 0, idx: 0, base: 0, token: 0,
-  pendingSkip: null, pendingPara: null, incoming: null, onlineTicker: 0, edgeWaiting: false,
+  pendingSkip: null, pendingPara: null, incoming: null, onlineTicker: 0, edgeWaiting: false, edgeEra: 1, edgeResume: null, edgeResumeFrom: 0, lastEdgeAudibleAt: 0,
   utt: null, uttLen: 0, edgeAudioContext: null, edgeRequests: new Map(), edgeReady: new Map(), edgeScheduled: new Map(),
   edgeScheduleToken: 0, edgeScheduleNext: 0, edgeScheduleEnd: 0, edgePlayingIndex: -1,
   startedAt: 0, lastSpeakAt: 0, errors: 0, unlocked: false,
@@ -3414,6 +3414,25 @@ const TTS = {
     });
     return { buffer: trimmed, trimStart: start / sampleRate };
   },
+  /* ---- Fluid Edge transport (readest-style): spam-proof restarts, local replay of prepared
+     audio, cache-first rewind, and a stall watchdog. Nothing here changes the visuals. ---- */
+  /* Seconds inside a prepared chunk buffer where character offset charOff is spoken. Uses mapped
+     word boundaries (times are relative to the trimmed buffer start); a proportional estimate
+     covers chunks whose service did not return boundaries. */
+  edgeTimeAtChar(prepared, charOff) {
+    const bs = prepared.boundaries || [];
+    if (bs.length) {
+      let t = 0;
+      for (const b of bs) { if (b.position > charOff) break; t = b.time; }
+      return clamp(t, 0, Math.max(0, prepared.buffer.duration - 0.01));
+    }
+    const frac = clamp((charOff - prepared.from) / Math.max(1, prepared.text.length), 0, 1);
+    return clamp(frac * prepared.buffer.duration, 0, Math.max(0, prepared.buffer.duration - 0.01));
+  },
+  /* Voice/rate/pitch/cadence changes start a new era. Fetches, prepared buffers and scheduled
+     sources carry the era they were made in, so a prosody change cannot replay stale audio. */
+  bumpEdgeEra() { this.edgeEra++; this.edgeResume = null; this.edgeResumeFrom = 0; },
+
   mapEdgeBoundaries(text, from, boundaries, trimStart) {
     const mapped = [];
     let searchFrom = 0;
@@ -3510,7 +3529,7 @@ const TTS = {
   playFrom(ch, off) { if (!TTS_OK) return this.play(); this.unlockEdgeAudio(); this.suspended = false; if (!this.active()) this.startSession(); this.speakFrom(ch, off); },
   pause() {
     if (!this.active()) return;
-    this.token++; this.clearTimers(); this.cancelSpeech(); this.stopOnline();
+    this.token++; this.clearTimers(); this.cancelSpeech(); this.stopOnline(); this.restartEdgeSoon.cancel();
     this.pendingSkip = null; this.pendingPara = null; this.incoming = null;   // a pause cancels jumps that were still queued
     this.state = 'paused'; this.savePos.flush(); AudioUI.sync();
   },
@@ -3520,7 +3539,7 @@ const TTS = {
     this.end(true);
   },
   end(relayout) {
-    this.token++; this.clearTimers(); this.cancelSpeech(); this.stopOnline(); this.savePos.flush();
+    this.token++; this.clearTimers(); this.cancelSpeech(); this.stopOnline(); this.savePos.flush(); this.restartEdgeSoon.cancel();
     this.state = 'idle'; this.unit = null; this.word = null; this.trail = []; this.suspended = false;
     this.pendingSkip = null; this.pendingPara = null; this.incoming = null; this.edgeWaiting = false;
     clearTimeout(this.sleepTimer); this.sleepEnd = 0; this.sleepEoc = false;
@@ -3535,7 +3554,18 @@ const TTS = {
   async seek(ch, off) {
     if (!this.active()) this.startSession();
     this.suspended = false; AudioUI.chip(false); this.forceFollow = true;
-    if (this.state === 'playing' || this.state === 'loading') { this.speakFrom(ch, off); return; }
+    if (this.state === 'playing' || this.state === 'loading') {
+      // Rapid skip taps must not each tear the pipeline down: on the Edge path the heavy restart
+      // is debounced (restartEdgeSoon) and only the optimistic position updates per tap, while
+      // pendingSkip accumulates the final target. Other engines restart right away as before.
+      if (this.online() && this.model && this.model.chunks.length) {
+        this.pendingSkip = { ch, off };
+        if (ch === this.ch) this.setPos(wordStartAtOrBefore(this.model.text, clamp(off, 0, Math.max(0, this.model.len - 1)), 0), 'skip');
+        this.restartEdgeSoon();
+        return;
+      }
+      this.speakFrom(ch, off); return;
+    }
     const tk = ++this.token; const m = await this.getModel(ch); if (tk !== this.token) return;
     this.pendingSkip = null;   // the seek itself satisfied any pending jump
     this.model = m; this.ch = ch; this.idx = Math.max(0, m.chunks.findIndex(c => c.e > off));
@@ -3611,12 +3641,23 @@ const TTS = {
   },
   setRate(r) { setAudio('rate', Math.round(clamp(r, 0.5, 2.5) * 20) / 20); },
   restartSoon: debounce(() => { if (TTS.state === 'playing') TTS.speakFrom(TTS.ch, TTS.pos); }, 280),
+  /* One heavy restart per skip burst: runs after the taps settle, restarting from the coalesced
+     target while preserving era-fresh audio (see stopEdgePlayback(true)). pause/stop/end flush or
+     cancel it so a pending restart can never fire into a paused session. */
+  restartEdgeSoon: debounce(() => {
+    const T = TTS;
+    if (!T.active() || T.state !== 'playing' || !T.online()) return;
+    const jump = T.pendingSkip;
+    T.pendingSkip = null;
+    if (jump) T.speakFrom(jump.ch, jump.off, { preserveEdge: jump.ch === T.ch });   // same chapter keeps buffered audio
+    else T.speakFrom(T.ch, T.pos, { preserveEdge: true });
+  }, 150),
 
   /* ---- queue ---- */
-  speakFrom(ch, off) {
-    const tk = ++this.token; this.clearTimers();
+  speakFrom(ch, off, opts) {
+    const tk = ++this.token; this.clearTimers(); this.lastEdgeAudibleAt = performance.now();
     this.incoming = { ch, off };   // transport target while this chapter loads; startModel clears it
-    this.stopOnline();
+    this.stopOnline(opts && opts.preserveEdge);
     let cancelled = this.cancelSpeech();
     if (!cancelled) {
       let busy = false; try { busy = speechSynthesis.speaking || speechSynthesis.pending; } catch (e) { /* ignore */ }
@@ -3829,19 +3870,40 @@ const TTS = {
         const hit = await downloads.lookup(bookId, full.voice, full.rate, full.pitch, full.text).catch(() => null);
         if (hit) return Object.assign({}, hit, { from: c.s, text: full.text });
       }
+      // Rewinding into an already-heard chunk: the full sentence is usually in the audio cache
+      // from the first play-through, so replay from there instead of fetching a partial text
+      // (a mid-chunk slice would always be a cache miss).
+      if (from > c.s && bookId) {
+        const full = this.edgeChunkRequest(m, i);
+        const storyKey = full.rate !== 1 || full.pitch !== 1 ? ':prosody:' + full.rate + ':' + full.pitch : '';
+        const fullId = 'edge-audio:v2:' + bookId + ':' + full.voice + ':' + hashStr(full.text) + storyKey;
+        try {
+          const cachedFull = await TTSAudioCache.get(fullId);
+          if (cachedFull && cachedFull.text === full.text && cachedFull.voice === full.voice) {
+            const bytes = await cachedFull.audio.arrayBuffer();
+            if (bytes.byteLength > 500) {
+              this.logEv('edge-cache-replay', i);
+              return { blob: new Blob([bytes], { type: cachedFull.audio.type || 'audio/mpeg' }), boundaries: cachedFull.boundaries || [], from: c.s, text: full.text };
+            }
+          }
+        } catch (e) { /* an unreadable cache entry falls through to the network */ }
+      }
       return this.edgeAudio(req.text, controller.signal, bookId, { rate: req.rate, pitch: req.pitch });
     })().then(result => result, error => ({ error }));
-    return { i, from, text: req.text, controller, promise };
+    return { i, from, text: req.text, controller, promise, era: this.edgeEra };
   },
   prefetchEdgeChunk(i, tk) {
     if (tk !== this.token || i >= this.model.chunks.length || i > this.idx + 2 ||
         this.edgeRequests.has(i) || this.edgeReady.has(i) || this.edgeScheduled.has(i)) return;
     const request = this.requestEdgeChunk(i, this.model.chunks[i].s);
     const entry = { ...request, promise: null };
+    const chAtStart = this.ch, eraAtStart = request.era;
     entry.promise = (async () => {
       const result = await request.promise;
-      if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
       if (result.error) throw result.error;
+      // A skip restart with preserve lets same-chapter, same-era fetches finish so their buffers
+      // slot straight into edgeReady; anything that changed chapter or era is stale and dropped.
+      if (this.ch !== chAtStart || this.edgeEra !== eraAtStart) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
       const ctx = await this.getEdgeAudioContext();
       let bytes;
       try { bytes = await result.blob.arrayBuffer(); }
@@ -3853,17 +3915,19 @@ const TTS = {
         bytes = await fresh.blob.arrayBuffer();
       }
       const decoded = await ctx.decodeAudioData(bytes);
-      if (tk !== this.token) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
+      if (this.ch !== chAtStart || this.edgeEra !== eraAtStart) { const error = new Error('request aborted'); error.name = 'AbortError'; throw error; }
       const trimmed = this.trimEdgeSilence(ctx, decoded);
       const from = result.from != null ? result.from : request.from, text = result.text || request.text;
       const prepared = {
-        i, from, text,
+        i, from, text, ch: chAtStart, era: eraAtStart,
         buffer: this.stretchEdgeBuffer(ctx, trimmed.buffer, A.rate),
         boundaries: this.mapEdgeBoundaries(text, from, result.boundaries, trimmed.trimStart)
       };
       this.edgeReady.set(i, prepared);
-      this.scheduleEdgeReady(tk);
-      this.prefetchEdgeChunk(i + 2, tk);
+      if (tk === this.token) {
+        this.scheduleEdgeReady(tk);
+        this.prefetchEdgeChunk(i + 2, tk);
+      }
       return prepared;
     })();
     this.edgeRequests.set(i, entry);
@@ -3887,8 +3951,16 @@ const TTS = {
       source.buffer = prepared.buffer;
       gain.gain.value = clamp(A.volume / 100, 0, 1);
       source.connect(gain); gain.connect(ctx.destination);
-      const startTime = Math.max(this.edgeScheduleEnd, ctx.currentTime + 0.03);
-      const scheduled = { i, source, gain, startTime, duration: prepared.buffer.duration, prepared };
+      // A skip/rewind landing inside this chunk resumes mid-buffer (local replay) instead of
+      // restarting it or refetching a partial text.
+      let offsetBuf = 0, offsetOrig = 0;
+      if (this.edgeResume && this.edgeResume.i === i && prepared.era === this.edgeEra && prepared.ch === this.ch) {
+        offsetOrig = clamp(this.edgeResume.offsetOrig || 0, 0, Math.max(0, prepared.buffer.duration - 0.01));
+        offsetBuf = clamp(offsetOrig / clamp(A.rate, 0.5, 2.5), 0, Math.max(0, prepared.buffer.duration - 0.01));   // buffer seconds, not original-audio seconds
+        this.edgeResume = null;
+      }
+      const startTime = offsetBuf > 0 ? ctx.currentTime + 0.03 : Math.max(this.edgeScheduleEnd, ctx.currentTime + 0.03);
+      const scheduled = { i, source, gain, startTime, duration: prepared.buffer.duration, prepared, era: prepared.era != null ? prepared.era : this.edgeEra, startChar: offsetBuf > 0 ? this.edgeResumeFrom : null, offsetOrig: offsetBuf > 0 ? offsetOrig : 0 };
       source.onended = () => {
         source.onended = null;
         try { source.disconnect(); gain.disconnect(); } catch (e) { /* already disconnected */ }
@@ -3901,9 +3973,9 @@ const TTS = {
       };
       this.edgeScheduled.set(i, scheduled);
       this.edgeReady.delete(i);
-      this.edgeScheduleEnd = startTime + scheduled.duration;
+      this.edgeScheduleEnd = startTime + scheduled.duration - offsetBuf;   // a resumed chunk only has duration - offset left
       this.edgeScheduleNext++;
-      try { source.start(startTime); }
+      try { source.start(startTime, offsetBuf); }
       catch (error) {
         this.edgeScheduled.delete(i);
         this.edgeScheduleNext = i;
@@ -3937,10 +4009,10 @@ const TTS = {
           this.lastEventAt = this.startedAt = performance.now();
           this.startFails = 0; this.errors = 0;
           this.logEv('edge-start', active.i);
-          this.setPos(prepared.from, 'chunk');
+          this.setPos(active.startChar != null ? active.startChar : prepared.from, 'chunk');
         }
-        const elapsed = Math.max(0, now - active.startTime) * clamp(A.rate, 0.5, 2.5);
-        let estimated = prepared.from + Math.floor(prepared.text.length * elapsed / Math.max(0.01, active.duration * clamp(A.rate, 0.5, 2.5)));
+        const elapsed = (active.offsetOrig || 0) + Math.max(0, now - active.startTime) * clamp(A.rate, 0.5, 2.5);
+        let estimated = (active.startChar != null ? active.startChar : prepared.from) + Math.floor(prepared.text.length * elapsed / Math.max(0.01, active.duration * clamp(A.rate, 0.5, 2.5)));
         let left = 0, right = prepared.boundaries.length - 1, match = -1;
         while (left <= right) {
           const mid = (left + right) >> 1;
@@ -3949,18 +4021,48 @@ const TTS = {
         if (match >= 0) estimated = prepared.boundaries[match].position;
         const off = wordStartAtOrBefore(this.model.text, estimated, prepared.from);
         if (off > this.pos) this.setPos(off, 'tick');
+        this.lastEdgeAudibleAt = performance.now();
+      } else if (!this.edgeScheduled.size && !this.edgeRequests.size && !this.edgeWaiting) {
+        // Stall watchdog: "playing" with nothing audible, queued or in flight for over 1.5 s
+        // means the pipeline wedged (e.g. a lost schedule after an interaction burst). Self-heal
+        // from the saved position instead of staying silent until the user notices.
+        if (performance.now() - this.lastEdgeAudibleAt > 1500) {
+          this.logEv('edge-stall-watchdog', this.pos);
+          clearInterval(this.onlineTicker); this.onlineTicker = 0;
+          this.stopEdgePlayback(false);
+          this.speakFrom(this.ch, this.pos);
+          return;
+        }
       }
     }, 110);
   },
-  stopEdgePlayback() {
-    for (const request of this.edgeRequests.values()) request.controller.abort();
-    this.edgeRequests.clear(); this.edgeReady.clear();
-    for (const scheduled of this.edgeScheduled.values()) {
+  /* Teardown with optional preservation (readest-style handover). With preserve=true, era-fresh
+     fetches keep running, and prepared buffers (including the chunk currently audible) go back to
+     edgeReady so the next speak can replay them locally instead of refetching. pause/stop/end pass
+     nothing and clear everything, as before. */
+  stopEdgePlayback(preserve) {
+    this.edgeResume = null; this.edgeResumeFrom = 0;
+    const fresh = this.edgeEra;
+    for (const [i, request] of [...this.edgeRequests]) {
+      if (!preserve || request.era !== fresh) { request.controller.abort(); this.edgeRequests.delete(i); }
+    }
+    for (const [i, prepared] of [...this.edgeReady]) {
+      if (!preserve || prepared.era !== fresh) this.edgeReady.delete(i);
+    }
+    for (const scheduled of [...this.edgeScheduled.values()].sort((a, b) => b.i - a.i)) {
+      const ctx = this.edgeAudioContext;
+      const now = ctx ? ctx.currentTime : 0;
+      const audible = scheduled.startTime <= now && now < scheduled.startTime + scheduled.duration;
       scheduled.source.onended = null;
-      try { scheduled.source.stop(); scheduled.source.disconnect(); scheduled.gain.disconnect(); } catch (e) { /* already ended */ }
+      try { scheduled.source.stop(); } catch (e) { /* never started or already ended */ }
+      try { scheduled.source.disconnect(); scheduled.gain.disconnect(); } catch (e) { /* already disconnected */ }
+      if (preserve && scheduled.era === fresh && scheduled.prepared.ch === this.ch && (audible || scheduled.startTime > now)) {
+        this.edgeReady.set(scheduled.i, scheduled.prepared);   // replayable without a refetch
+      }
     }
     this.edgeScheduled.clear();
-    this.edgeScheduleToken = 0; this.edgeScheduleNext = 0; this.edgeScheduleEnd = 0; this.edgePlayingIndex = -1;
+    this.edgeScheduleToken = 0; this.edgeScheduleEnd = 0; this.edgePlayingIndex = -1;
+    if (!preserve) this.edgeScheduleNext = 0;
   },
   waitEdgeRetry(ms, signal) {
     // Surface the silent backoff (429 Retry-After / transient network) so the player can show a
@@ -3980,8 +4082,8 @@ const TTS = {
     });
     return done.finally(() => { this.edgeWaiting = false; if (was) AudioUI.sync(); });
   },
-  stopOnline() {
-    this.stopEdgePlayback();
+  stopOnline(preserve) {
+    this.stopEdgePlayback(preserve);
     clearInterval(this.onlineTicker); this.onlineTicker = 0;
   },
   async speakChunkEdge(i, from, tk) {
@@ -3997,6 +4099,17 @@ const TTS = {
         this.prefetchEdgeChunk(i + 1, tk);
         this.prefetchEdgeChunk(i + 2, tk);
         return;
+      }
+      // Local replay: the target chunk is already decoded in the current era, so remember where
+      // inside it to start; scheduleEdgeReady consumes this and calls source.start(when, offset).
+      const ready = this.edgeReady.get(i);
+      if (ready && ready.era === this.edgeEra && ready.ch === this.ch && this.edgeAudioContext) {
+        if (this.edgeScheduleNext > i) this.edgeScheduleNext = i;   // restored chunks: restart the schedule at the target
+        this.edgeResumeFrom = Math.max(from, ready.from);
+        this.edgeResume = { i, offsetOrig: this.edgeTimeAtChar(ready, this.edgeResumeFrom) };
+      } else {
+        if (this.edgeScheduleNext > i) this.edgeScheduleNext = i;
+        this.edgeResume = null;
       }
       if (!this.edgeReady.has(i)) await (request || this.prefetchEdgeChunk(i, tk)).promise;
       if (tk !== this.token) return;
@@ -4677,6 +4790,7 @@ function setAudio(key, val) {
   if (A[key] === val) { syncAudioSettingsUI(); return; }
   A[key] = val; saveAudioSettings();
   if (key === 'voiceURI' || key === 'voiceLocked') { TTS.forceDefault = false; TTS.forceLocal = false; TTS.startFails = 0; }
+  if (['rate', 'pitch', 'voiceURI', 'cadence', 'engine'].includes(key)) TTS.bumpEdgeEra();   // stale prepared audio must never replay
   if (['rate', 'pitch', 'volume', 'voiceURI'].includes(key)) TTS.restartSoon();
   if (key === 'hlMode' || key === 'trail') { TTS.trail = []; TTS.unit = null; TTS.word = null; TTS.sylTimers.forEach(clearTimeout); if (TTS.model) { TTS.updateUnit('mode'); TTS.renderHL(); } }
   if (key === 'hlColor') applyAudioColor();
@@ -4736,7 +4850,7 @@ function applyAudioPreset(v) {
 }
 /* Switching the Edge voice (or proxy) does not clear text models: they hold chapter text and
    chunk offsets only, which are voice-independent, so speech restarts without a chapter rebuild. */
-function setEdgeVoice(v) { A.edgeVoice = v; A.voiceLocked = true; saveAudioSettings(); TTS.onlineDown = false; TTS.restartSoon(); syncAudioSettingsUI(); AudioUI.sync(); }
+function setEdgeVoice(v) { A.edgeVoice = v; A.voiceLocked = true; saveAudioSettings(); TTS.onlineDown = false; TTS.bumpEdgeEra(); TTS.restartSoon(); syncAudioSettingsUI(); AudioUI.sync(); }
 function setDeviceVoice(uri) { A.preset = uri ? 'custom' : 'auto'; A.voiceLocked = true; setAudio('voiceURI', uri); fillVoiceSelect(); syncAudioSettingsUI(); }
 function resetAudio() { Object.assign(A, A_DEFAULTS); saveAudioSettings(); applyAudioColor(); TTS.restartSoon(); syncAudioSettingsUI(); AudioUI.sync(); toast('TTS settings reset'); }
 function speechReport(extra) {
@@ -4822,7 +4936,7 @@ function selectVoice(kind, id) {
   if (kind === 'edge') { A.engine = 'edge'; A.edgeVoice = id; }
   else { A.engine = 'device'; A.voiceURI = id || ''; A.preset = id ? 'custom' : 'auto'; TTS.forceDefault = false; TTS.forceLocal = false; TTS.startFails = 0; }
   A.voiceLocked = true;
-  saveAudioSettings(); TTS.onlineDown = false; TTS.edge429 = 0;
+  saveAudioSettings(); TTS.onlineDown = false; TTS.edge429 = 0; TTS.bumpEdgeEra();
   TTS.restartSoon(); fillVoiceSelect(); syncAudioSettingsUI(); AudioUI.sync();
 }
 const PREVIEW_SAMPLES = { en: 'This is how this voice sounds when reading your book.', nl: 'Zo klinkt deze stem bij het voorlezen.', de: 'So klingt diese Stimme beim Vorlesen.', fr: 'Voici comment cette voix lit votre livre.',

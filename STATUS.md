@@ -229,3 +229,28 @@
 - A scripted rapid-tap e2e for coalesced skips would lock the behaviour in; added as a suggested follow-up.
 
 **Worker redeploy required: NO**
+
+## Fluid Edge transport — spam-proof skip/rewind (2026-11-09, branch `stock-tts-fluid`)
+
+**What changed** — manual testing after the transport hardening showed the player wedging ("playing" with no sound for seconds) when skip/rewind buttons were tapped in bursts. Root causes, all in the Edge (Web Audio) path of `index.html`; no visual changes.
+- Every skip tap tore the whole pipeline down (`stopOnline` aborted all fetches and cleared prepared audio), then refetched. Taps faster than the network latency starved playback: nothing ever finished, so the player sat silent in `playing` (the reported "stuck").
+- Rewinds landed mid-chunk, and mid-chunk text slices are new cache keys — guaranteed cache miss, guaranteed refetch, per tap. Burst taps also risked a 429 storm.
+
+Fixes, following the readest architecture (studied `BufferedTTSClient`/`TTSController`/`WebAudioPlayer`):
+- **Coalesced restarts (spam-proof).** `seek()` on the Edge path while playing now records the target in `pendingSkip`, updates the position optimistically, and schedules one heavy restart via `restartEdgeSoon` (150 ms trailing debounce). A burst of N taps = 0 requests during the burst + one restart with the final target. `pause()`/`end()` cancel the pending restart; the device path is unchanged.
+- **Preserved teardown (readest-style handover).** `stopEdgePlayback(preserve)` keeps era-fresh fetches running and puts prepared buffers (including the currently audible chunk) back into `edgeReady`, so the restart replays local audio instead of refetching. Same-chapter jumps preserve; chapter changes clear.
+- **Era invalidation.** Prepared/fetched/scheduled entries carry an `edgeEra` stamp; voice/rate/pitch/cadence/engine changes bump the era (`bumpEdgeEra`) so stale-prosody audio can never replay. Preserved fetches whose chapter or era changed are dropped when they resolve.
+- **Mid-chunk resume (local replay).** `edgeTimeAtChar` maps a character offset to seconds inside a prepared chunk via its word boundaries; `scheduleEdgeReady` consumes it and calls `source.start(when, offsetBuf)`. The buffer-domain offset is derived from the original-audio offset by the playback rate (buffers are time-stretched), the schedule timeline subtracts the skipped part, and the ticker's elapsed clock starts at the resume offset (both domains kept apart as `offsetOrig`/`offsetBuf`).
+- **Cache-first rewind.** `requestEdgeChunk` looks up the full chunk (the exact text the first play-through cached, boundaries included) in `TTSAudioCache` before asking the network for a partial slice, and logs `edge-cache-replay`.
+- **Stall watchdog.** The Edge ticker now self-heals: "playing" with nothing audible, queued or in flight for > 1.5 s restarts from the saved position (`edge-stall-watchdog`), so a wedged pipeline can no longer stay silent forever. The stall clock resets on every `speakFrom`.
+
+**How it was tested** (headless Chromium via Playwright; the suite already retries WebKit timing)
+- New `e2e/skip-spam.spec.mjs`: a burst of 8 forward taps fires zero requests during the burst and ≤ 3 afterwards (restart + prefetch chain), audio keeps flowing (`edgeScheduled/edgeReady/edgeRequests` non-empty), a burst of 6 rewinds adds ≤ 1 request (cache replays the rest), and rapid pause/play around a restart never leaves a wedged transport (1.7 s > watchdog window with audio still flowing).
+- Deterministic: `--repeat-each=4` → 12/12 twice (before and after the offset-domain precision fix).
+- Full suite: 56 passed (Chromium desktop + iPhone 15 + WebKit desktop), `tsc` clean, unit tests 7/7.
+
+**Not tested / follow-ups**
+- Real device pass recommended (iOS Safari) for the resume path; headless WebKit has no audio engine.
+- Boundaryless chunks (mock audio has none) use a proportional estimate for resume timing; real Edge responses carry boundaries.
+
+**Worker redeploy required: NO**
