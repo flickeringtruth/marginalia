@@ -175,8 +175,9 @@ export function IconButton(o: { label: string; icon: IconName; filled?: boolean;
 }
 
 /** A filter chip: a toggle button with aria-pressed. */
-export function Chip(o: { label: string; count?: number; icon?: IconName; pressed?: boolean; onClick?: () => void }): HTMLButtonElement {
+export function Chip(o: { label: string; count?: number; icon?: IconName; pressed?: boolean; attrs?: Record<string, string>; onClick?: () => void }): HTMLButtonElement {
   const b = h('button', { type: 'button', class: 'v2-chip', 'aria-pressed': String(!!o.pressed) });
+  if (o.attrs) for (const [k, v] of Object.entries(o.attrs)) b.setAttribute(k, v);
   if (o.icon) b.appendChild(icon(o.icon));
   b.appendChild(h('span', { text: o.label }));
   if (o.count != null) b.appendChild(h('span', { class: 'n', text: String(o.count) }));
