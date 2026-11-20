@@ -145,8 +145,9 @@ function langName(code) { try {
 catch {
     return code;
 } }
-/* When Gutendex failed recently, start with Gutenberg's own catalogue instead of waiting for the timeout again. */
-const DOWN_KEY = 'marginalia.discover.gutendexDown', DOWN_FOR_MS = 6 * 60 * 60 * 1000;
+/* When Gutendex failed a moment ago, start with Gutenberg's own catalogue instead of waiting for the timeout again.
+   The memory is short (5 minutes), so a Gutendex that has recovered is used again, and Try again always asks it first. */
+const DOWN_KEY = 'marginalia.discover.gutendexDown', DOWN_FOR_MS = 5 * 60 * 1000;
 function gutendexRecentlyDown() {
     try {
         return Date.now() - Number(localStorage.getItem(DOWN_KEY) || 0) < DOWN_FOR_MS;
@@ -154,6 +155,15 @@ function gutendexRecentlyDown() {
     catch {
         return false;
     }
+}
+function setGutendexDown(down) {
+    try {
+        if (down)
+            localStorage.setItem(DOWN_KEY, String(Date.now()));
+        else
+            localStorage.removeItem(DOWN_KEY);
+    }
+    catch { /* storage blocked */ }
 }
 /* ---------- state (kept for the session, so Back returns to the same query and scroll) ---------- */
 const st = {
@@ -305,12 +315,14 @@ async function search(raw, force = false) {
         st.ctrl.abort(); // stale request: stop using it
     const ctrl = new AbortController(), gen = ++st.gen;
     Object.assign(st, { query, books: [], seen: new Set(), next: null, status: 'loading', error: '', ctrl, scroll: 0 });
+    // Every new search starts with Gutendex (richer results), unless it failed a moment ago; Try again always asks it first.
+    st.source = !force && gutendexRecentlyDown() ? 'gutenberg' : 'gutendex';
     if (refs)
         refs.main.scrollTop = 0;
     render();
     await loadPage(searchUrl(st.source, query), ctrl, gen);
 }
-async function loadPage(url, ctrl, gen) {
+async function loadPage(url, ctrl, gen, canSwitch = true) {
     try {
         const page = await fetchPage(st.source, url, ctrl.signal);
         if (gen !== st.gen)
@@ -322,18 +334,20 @@ async function loadPage(url, ctrl, gen) {
             }
         st.next = page.next;
         st.status = 'done';
+        if (st.source === 'gutendex')
+            setGutendexDown(false);
     }
     catch (e) {
         if (gen !== st.gen || e.name === 'AbortError')
             return;
-        // Gutendex not answering: switch to Project Gutenberg's own catalogue for the rest of the session.
-        if (st.source === 'gutendex' && !st.books.length) {
-            st.source = 'gutenberg';
-            try {
-                localStorage.setItem(DOWN_KEY, String(Date.now()));
-            }
-            catch { /* storage blocked */ }
-            return loadPage(searchUrl('gutenberg', st.query), ctrl, gen);
+        // The catalogue in use is not answering: try the other one once for this search. A failed Gutendex is
+        // remembered for a few minutes so the next searches do not wait for its timeout again.
+        if (canSwitch && !st.books.length) {
+            const to = st.source === 'gutendex' ? 'gutenberg' : 'gutendex';
+            if (st.source === 'gutendex')
+                setGutendexDown(true);
+            st.source = to;
+            return loadPage(searchUrl(to, st.query), ctrl, gen, false);
         }
         st.status = 'error';
         st.error = navigator.onLine === false ? 'You’re offline. Connect to the internet and try again.'
@@ -472,12 +486,12 @@ function openDetail(start) {
             coverBox.appendChild(img);
         }
         const meta = [b.languages.map(langName).join(', '), b.downloads ? b.downloads.toLocaleString() + ' downloads' : '', b.verified ? 'Public domain in the USA' : ''].filter(Boolean).join(' · ');
-        const summary = b.summary.length > 600 ? b.summary.slice(0, 600).replace(/s+S*$/, '') + '…' : b.summary;
+        const summary = b.summary.length > 600 ? b.summary.slice(0, 600).replace(/\s+\S*$/, '') + '…' : b.summary;
         paintActs();
         const parts = [
             h('div', { class: 'dhead' }, coverBox, h('div', {}, h('h3', { text: b.title }), h('p', { class: 'by', text: b.authors.join(', ') || 'Unknown author' }), meta ? h('p', { class: 'meta', text: meta }) : null)),
             note ? h('p', { class: 'v2-hint', 'aria-live': 'polite', text: note }) : summary ? h('p', { class: 'sum', text: summary }) : h('p', { class: 'v2-hint', text: 'No description is available for this book.' }),
-            b.subjects.length ? h('ul', { class: 'subs', 'aria-label': 'Subjects' }, ...b.subjects.map(x => h('li', { text: x.replace(/s+--s+/g, ' · ') }))) : null,
+            b.subjects.length ? h('ul', { class: 'subs', 'aria-label': 'Subjects' }, ...b.subjects.map(x => h('li', { text: x.replace(/\s+--\s+/g, ' · ') }))) : null,
             acts
         ];
         body.replaceChildren(...parts.filter((x) => !!x));
