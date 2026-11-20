@@ -143,7 +143,7 @@ export function openContents(start?: string): void {
     }
     const hls = (R().HL.list || []).slice().sort(byPlace);
     view.replaceChildren(hls.length ? h('div', { class: 'v2-rows' }, ...hls.map(hl => {
-      const dot = h('i', { class: 'dot', 'aria-hidden': 'true' }); dot.style.background = HL_HEX[hl.color] || '#ffcc00';
+      const dot = h('i', { class: 'dot', 'aria-hidden': 'true' }); dot.style.background = HL_HEX[hl.color] || (/^#[0-9a-f]{6}$/i.test(hl.color) ? hl.color : '#ffcc00');
       const go = h('button', { type: 'button', class: 'go' }, h('b', {}, dot, chapterName(hl.ch)), h('small', { text: hl.text }));
       go.addEventListener('click', () => jump(sheet, hl.ch, hl.start));
       return h('div', { class: 'v2-row' }, go, IconButton({ label: 'Remove highlight', icon: 'trash', onClick: () => { R().HL.remove(hl.id); showToast('Highlight removed'); draw(); } }));
