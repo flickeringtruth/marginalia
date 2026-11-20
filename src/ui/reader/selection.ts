@@ -6,7 +6,10 @@
      (user-select / -webkit-touch-callout: none), so iOS shows no callout to fight with.
      On touch screens the menu still prefers to sit *below* the selection, where an iOS
      callout would never appear, and it never takes focus away from the page.
-   - Actions go through the engine's selectionAction(), the same code as the old menu. */
+   - Actions go through the engine's selectionAction(), the same code as the old menu.
+   - Custom highlight colours: the last swatch opens the system colour picker. The chosen colour is
+     stored on the highlight as "#rrggbb" (the engine accepts any string), and a CSS rule for it is
+     added here because the engine only styles its five named colours. */
 
 import { h, addStyle, reader } from '../dom.js';
 import { icon, IconName } from '../icons.js';
@@ -27,10 +30,12 @@ const CSS = `
   padding:6px;border-radius:var(--v2-r-lg);background:var(--v2-pop-bg);color:var(--v2-pop-fg);box-shadow:var(--v2-shadow-2);font-family:var(--v2-sans);
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
 .v2-selmenu[hidden]{display:none}
-.v2-selmenu .colors{display:flex;justify-content:center;gap:2px;padding-bottom:4px;margin-bottom:4px;border-bottom:1px solid var(--v2-pop-line)}
-.v2-selmenu .dot{display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:0;border-radius:12px;background:none;cursor:pointer}
+.v2-selmenu .colors{display:flex;flex-wrap:wrap;justify-content:center;gap:2px;padding-bottom:4px;margin-bottom:4px;border-bottom:1px solid var(--v2-pop-line)}
+.v2-selmenu .dot{position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:0;border-radius:12px;background:none;cursor:pointer}
 .v2-selmenu .dot i{width:26px;height:26px;border-radius:13px;border:2.5px solid transparent;box-sizing:border-box}
 .v2-selmenu .dot[aria-pressed="true"] i{border-color:var(--v2-pop-fg)}
+.v2-selmenu .dot.pick i{background:conic-gradient(#ff375f,#ffcc00,#34c759,#0a84ff,#af52de,#ff375f)}
+.v2-selmenu .dot.pick input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
 .v2-selmenu .acts{display:flex;flex-wrap:wrap;justify-content:center;gap:2px}
 .v2-selmenu .act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:52px;min-height:52px;padding:4px 6px;border:0;border-radius:12px;
   background:none;color:var(--v2-pop-fg);font:500 11px/1 var(--v2-sans);cursor:pointer}
@@ -45,6 +50,15 @@ const loadFUI = () => (fui = fui || (import(FUI_URL) as Promise<FloatingUI>));
 
 const NAMES: Record<string, string> = { yellow: 'Yellow', green: 'Green', blue: 'Blue', pink: 'Pink', purple: 'Purple' };
 
+const HEX = /^#[0-9a-f]{6}$/i;
+const CUSTOM_KEY = 'marginalia.hlCustomColor';
+function lastCustom(): string | null {
+  try { const v = localStorage.getItem(CUSTOM_KEY); return v && HEX.test(v) ? v.toLowerCase() : null; } catch { return null; }
+}
+function rememberCustom(hex: string): void {
+  try { localStorage.setItem(CUSTOM_KEY, hex); } catch { /* storage blocked */ }
+}
+
 export function mountSelection(): void {
   addStyle('v2-selmenu', CSS);
   void loadFUI();
@@ -55,6 +69,27 @@ export function mountSelection(): void {
   portalRoot().appendChild(menu);
   let open = false;
 
+  /* One CSS rule per custom colour in use (existing highlights included), so marks and the Highlights list agree. */
+  const rules = document.createElement('style');
+  rules.id = 'v2-hl-custom';
+  document.head.appendChild(rules);
+  const painted = new Set<string>();
+  const paintColor = (hex: string): void => {
+    const c = hex.toLowerCase();
+    if (!HEX.test(c) || painted.has(c)) return;
+    painted.add(c);
+    const n = parseInt(c.slice(1), 16);
+    rules.appendChild(document.createTextNode(`mark.hl[data-color="${c}"]{background:rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},.4)}`));
+  };
+  const paintAll = (): void => { for (const hl of R.HL?.list || []) paintColor(String(hl.color || '')); };
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; paintAll(); });
+  }).observe(document.body, { childList: true, subtree: true });
+  paintAll();
+
   const act = (label: string, ic: IconName, run: () => void, danger = false) => {
     const b = h('button', { type: 'button', class: 'act' + (danger ? ' danger' : ''), 'aria-label': label, title: label }, icon(ic), h('span', { 'aria-hidden': 'true', text: label }));
     b.addEventListener('click', () => { hide(); run(); });
@@ -63,12 +98,21 @@ export function mountSelection(): void {
 
   function build(): void {
     const s = R.selectionInfo();
-    const colors = h('div', { class: 'colors', role: 'group', 'aria-label': 'Highlight colour' }, ...Object.entries(s.colors).map(([c, hex]) => {
-      const dot = h('i'); dot.style.background = hex;
-      const b = h('button', { type: 'button', class: 'dot', 'aria-label': (NAMES[c] || c) + ' highlight', 'aria-pressed': String(s.color === c) }, dot);
-      b.addEventListener('click', () => { hide(); void R.selectionAction('color', c); });
+    const apply = (c: string) => { paintColor(c); hide(); void R.selectionAction('color', c); };
+    const dot = (c: string, hex: string, label: string) => {
+      const sw = h('i'); sw.style.background = hex;
+      const b = h('button', { type: 'button', class: 'dot', 'aria-label': label + ' highlight', 'aria-pressed': String(s.color === c) }, sw);
+      b.addEventListener('click', () => apply(c));
       return b;
-    }));
+    };
+    const swatches: HTMLElement[] = Object.entries(s.colors).map(([c, hex]) => dot(c, hex, NAMES[c] || c));
+    const own = s.color && HEX.test(s.color) && !(s.color in s.colors) ? s.color : lastCustom();
+    if (own) swatches.push(dot(own, own, 'Custom'));
+    const pick = h('input', { type: 'color', 'aria-label': 'Choose a custom highlight colour' });
+    pick.value = own || '#ff8800';
+    pick.addEventListener('change', () => { const c = pick.value.toLowerCase(); rememberCustom(c); apply(c); });
+    swatches.push(h('span', { class: 'dot pick', title: 'Custom colour' }, h('i'), pick));
+    const colors = h('div', { class: 'colors', role: 'group', 'aria-label': 'Highlight colour' }, ...swatches);
     const acts = h('div', { class: 'acts' },
       act('Note', 'note', noteFromSelection),
       act('Look up', 'dictionary', () => void R.selectionAction('define')),
